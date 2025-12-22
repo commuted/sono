@@ -81,7 +81,8 @@ class SoundElement:
             frequency (float): The frequency of the wave in Hz (default: 440.0).
             sample_rate (int): The sampling rate in Hz (default: 44100).
             name (str, optional): Unique identifier for the element. Auto-generated if None.
-            phase (float): Initial phase in radians (default: 0.0).
+            *
++ phase (float): Initial phase in radians (default: 0.0).
             scale (float): Amplitude scaling factor (default: 1.0).
 
         Raises:
@@ -1987,7 +1988,7 @@ class Event:
         if ptime < 0:
             raise ValueError("Event time must be non-negative")
         self._time = ptime
-        self._event = event if event else []
+        self._event = event if event else None
         self._name = name or f"{self._TYPE}_{id(self)}"
 
     class AmNote:
@@ -2172,7 +2173,6 @@ class EventList:
     Attributes:
         event_list (List[Event]): List of events, sorted by time.
         name (str): Unique identifier for the event list.
-        pointer (int): Current event pointer.
     """
 
     def __init__(self, event_list: List[Event] | None = None, name: str | None = None):
@@ -2183,32 +2183,10 @@ class EventList:
             name (str, optional): Unique identifier for the event list.
         """
         self._TYPE = "EventList"
-        self._pointer: int = 0
         self._event_list = event_list or []
         if self._event_list:
             self._event_list.sort(key=lambda e: e.get_time())
         self._name = name or f"{self._TYPE}_{id(self)}"
-
-    def set_event_pointer(self, pointer: int) -> None:
-        """Set the current event pointer.
-
-        Args:
-            pointer (int): The index of the current event.
-
-        Raises:
-            ValueError: If pointer is out of range.
-        """
-        if pointer < 0 or pointer >= len(self._event_list):
-            raise ValueError("Event pointer out of range")
-        self._pointer = pointer
-
-    def get_event_pointer(self) -> int:
-        """Get the current event pointer.
-
-        Returns:
-            int: The index of the current event.
-        """
-        return self._pointer
 
     def add_event(self, entry: Event) -> None:
         """Add an event to the list and sort by time.
@@ -2298,6 +2276,35 @@ class EventList:
         """
         return self._event_list
 
+    def next_event(self, ptime: int) -> int | None:
+        """Find the next event time equal to or greater than the given ptime.
+
+        Args:
+            ptime (int): The presentation time to search for.
+
+        Returns:
+            int | None: The ptime of the first event with time >= ptime, or None if no such event exists.
+        """
+        for event in self._event_list:
+            if event.get_time() >= ptime:
+                return event.get_time()
+        return None
+
+    def get_ptime_list(self) -> List[int]:
+        """Get a sorted list of unique event times.
+
+        Returns:
+            List[int]: Sorted list of unique ptimes, earliest first at index 0.
+        """
+        seen: set[int] = set()
+        result: List[int] = []
+        for event in self._event_list:
+            ptime = event.get_time()
+            if ptime not in seen:
+                seen.add(ptime)
+                result.append(ptime)
+        return result
+
     def msg(self, msg: Dict[str, Dict[str, List]]) -> Dict[str, Any]:
         """Process control messages to set or get properties.
 
@@ -2320,12 +2327,12 @@ class EventList:
                         return_val[self._name]["get_name"] = self.get_name()
                     elif cmd == "get_type":
                         return_val[self._name]["get_type"] = self.get_type()
-                    elif cmd == "get_event_pointer":
-                        return_val[self._name]["get_event_pointer"] = self.get_event_pointer()
-                    elif cmd == "set_event_pointer":
-                        self.set_event_pointer(val[0])
                     elif cmd == "get_event_list":
                         return_val[self._name]["get_event_list"] = self.get_event_list()
+                    elif cmd == "next_event":
+                        return_val[self._name]["next_event"] = self.next_event(val[0])
+                    elif cmd == "get_ptime_list":
+                        return_val[self._name]["get_ptime_list"] = self.get_ptime_list()
                 # Route messages to underlying events
                 for event in self._event_list:
                     event_val = event.msg(msg)
@@ -2343,7 +2350,6 @@ class EventList:
         return_val: Dict[str, Any] = {
             "get_type": self.get_type(),
             "get_name": self.get_name(),
-            "get_event_pointer": self.get_event_pointer(),
             "events": [event.dump() for event in self._event_list],
         }
         return return_val
@@ -2392,6 +2398,9 @@ class Sequencer:
             events (EventList): The event list to add.
         """
         self._event_lib[events.get_name()] = events
+
+    def generate_event_queue(self) -> None:
+        pass # TODO
 
     def add_instrument(self, instrument: Instrument) -> None:
         """Add an instrument to the sequencer.
