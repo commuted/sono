@@ -34,6 +34,7 @@ from typing import Union, Any, Dict, List, Tuple, TYPE_CHECKING
 from math import sin, asin, pi, e, log2
 from enum import Enum
 import numpy as np
+import re
 
 if TYPE_CHECKING:
     SoundElementType = Union[
@@ -1708,6 +1709,11 @@ class Note:
 
         Args:
             chord (Tuple[int, str, str]): A tuple of (octave, note, chord_type).
+                chord_type can include:
+                - Slash bass note: "major/E", "m7/G"
+                - Omit notation: "major(omit5)", "9(omit3)"
+                - Combined: "maj7(omit5)/E", "9(omit3,5)/G"
+                Valid omit values: 1, root, 3, 5, 7, 9, 11, 13
             mix (MixType): The mixing method for combining notes (default: MixType.SUM).
             pluck (bool): If True, apply a Pluck effect to the chord (default: True).
 
@@ -1772,12 +1778,66 @@ class Note:
         }
         populated: List[SoundElementType] = []
         base_midi = chord[0] * 12 + note_map.get(chord[1], 0)
+        chord_type = chord[2]
+        slash_bass = None
+        omit_intervals: set[int] = set()
+
+        # Map scale degrees to semitone offsets for omit notation
+        # Includes both major and minor variants where applicable
+        omit_map = {
+            "1": {0},
+            "root": {0},
+            "3": {3, 4},      # minor 3rd and major 3rd
+            "5": {7},
+            "7": {10, 11},    # minor 7th and major 7th
+            "9": {14},
+            "11": {17},
+            "13": {21},
+        }
+
+        # Parse omit notation (e.g., "(omit5)", "(omit3,5)")
+        omit_match = re.search(r"\(omit([^)]+)\)", chord_type)
+        if omit_match:
+            omit_str = omit_match.group(1)
+            # Remove the omit notation from chord_type
+            chord_type = chord_type[:omit_match.start()] + chord_type[omit_match.end():]
+            # Parse comma-separated omit values
+            for omit_val in omit_str.split(","):
+                omit_val = omit_val.strip().lower()
+                if omit_val in omit_map:
+                    omit_intervals.update(omit_map[omit_val])
+
+        # Check for slash chord notation (e.g., "major/E", "m7/G#")
+        # Exclude chord types that use "/" as part of their name (6/9, m6/9)
+        if "/" in chord_type:
+            parts = chord_type.rsplit("/", 1)
+            # Check if the part after "/" is a valid note name (slash bass)
+            # rather than part of the chord name (like "9" in "6/9")
+            if parts[1] in note_map:
+                chord_type = parts[0]
+                slash_bass = parts[1]
+
         name = f"{chord[0]}{chord[1]}{chord[2]}"
-        chord_offsets = chords.get(chord[2], {0})
+        chord_offsets = chords.get(chord_type, {0})
+
+        # Apply omit intervals
+        if omit_intervals:
+            chord_offsets = {o for o in chord_offsets if o not in omit_intervals}
         for offset in chord_offsets:
             elem = SoundElement()
             elem.set_frequency_to_midi_note(base_midi + offset)
             populated.append(elem)
+
+        # Add slash bass note (one octave below the chord root)
+        if slash_bass is not None:
+            bass_offset = note_map[slash_bass]
+            # Place bass note one octave below the chord root
+            bass_midi = (chord[0] - 1) * 12 + bass_offset
+            bass_elem = SoundElement()
+            bass_elem.set_frequency_to_midi_note(bass_midi)
+            # Insert bass at the beginning so it's the lowest voice
+            populated.insert(0, bass_elem)
+
         while len(populated) > 1:
             a = populated.pop(0)
             b = populated.pop(0)
