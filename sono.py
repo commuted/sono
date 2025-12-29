@@ -2171,7 +2171,7 @@ class EventList:
     """A class to manage a list of timed events.
 
     Attributes:
-        event_list (List[Event]): List of events, sorted by time.
+        event_list (List[Tuple[int, Event]]): List of (ptime, Event) tuples, sorted by time.
         name (str): Unique identifier for the event list.
     """
 
@@ -2183,9 +2183,11 @@ class EventList:
             name (str, optional): Unique identifier for the event list.
         """
         self._TYPE = "EventList"
-        self._event_list = event_list or []
-        if self._event_list:
-            self._event_list.sort(key=lambda e: e.get_time())
+        self._event_list: List[Tuple[int, Event]] = []
+        if event_list:
+            for event in event_list:
+                self._event_list.append((event.get_time(), event))
+            self._event_list.sort(key=lambda e: e[0])
         self._name = name or f"{self._TYPE}_{id(self)}"
 
     def add_event(self, entry: Event) -> None:
@@ -2199,8 +2201,8 @@ class EventList:
         """
         if not isinstance(entry, Event):
             raise ValueError("add_event must be an Event instance")
-        self._event_list.append(entry)
-        self._event_list.sort(key=lambda e: e.get_time())
+        self._event_list.append((entry.get_time(), entry))
+        self._event_list.sort(key=lambda e: e[0])
 
     def add_event_list(self, event_list: List[Event], offset: int = 0) -> None:
         """Add a list of events with an optional time offset.
@@ -2215,21 +2217,16 @@ class EventList:
             event.set_time(event.get_time() + offset)
             self.add_event(event)
 
-    def get_event(self, item: int) -> Event:
-        """Get an event by its index.
+    def get_events(self, ptime: int) -> List[Event]:
+        """Get all events at the specified ptime.
 
         Args:
-            item (int): The index of the event.
+            ptime (int): The presentation time to search for.
 
         Returns:
-            Event: The event at the specified index.
-
-        Raises:
-            IndexError: If item is out of range.
+            List[Event]: List of events at the specified ptime.
         """
-        if not 0 <= item < len(self._event_list):
-            raise IndexError("Event index out of range")
-        return self._event_list[item]
+        return [event for pt, event in self._event_list if pt == ptime]
 
     def remove_event(self, entry: Event) -> None:
         """Remove an event from the list.
@@ -2240,9 +2237,11 @@ class EventList:
         Raises:
             ValueError: If entry is not in the list.
         """
-        if entry not in self._event_list:
-            raise ValueError("Event not found in list")
-        self._event_list.remove(entry)
+        for i, (pt, event) in enumerate(self._event_list):
+            if event is entry:
+                self._event_list.pop(i)
+                return
+        raise ValueError("Event not found in list")
 
     def get_name(self) -> str:
         """Get the unique identifier of the event list.
@@ -2272,9 +2271,9 @@ class EventList:
         """Get the list of events.
 
         Returns:
-            List[Event]: The list of events.
+            List[Event]: The list of events in original format.
         """
-        return self._event_list
+        return [event for pt, event in self._event_list]
 
     def next_event(self, ptime: int) -> int | None:
         """Find the next event time equal to or greater than the given ptime.
@@ -2285,9 +2284,9 @@ class EventList:
         Returns:
             int | None: The ptime of the first event with time >= ptime, or None if no such event exists.
         """
-        for event in self._event_list:
-            if event.get_time() >= ptime:
-                return event.get_time()
+        for pt, event in self._event_list:
+            if pt >= ptime:
+                return pt
         return None
 
     def get_ptime_list(self) -> List[int]:
@@ -2298,11 +2297,10 @@ class EventList:
         """
         seen: set[int] = set()
         result: List[int] = []
-        for event in self._event_list:
-            ptime = event.get_time()
-            if ptime not in seen:
-                seen.add(ptime)
-                result.append(ptime)
+        for pt, event in self._event_list:
+            if pt not in seen:
+                seen.add(pt)
+                result.append(pt)
         return result
 
     def msg(self, msg: Dict[str, Dict[str, List]]) -> Dict[str, Any]:
@@ -2333,8 +2331,10 @@ class EventList:
                         return_val[self._name]["next_event"] = self.next_event(val[0])
                     elif cmd == "get_ptime_list":
                         return_val[self._name]["get_ptime_list"] = self.get_ptime_list()
+                    elif cmd == "get_events":
+                        return_val[self._name]["get_events"] = self.get_events(val[0])
                 # Route messages to underlying events
-                for event in self._event_list:
+                for pt, event in self._event_list:
                     event_val = event.msg(msg)
                     if event_val:
                         return_val[self._name][event.get_name()] = event_val
@@ -2345,12 +2345,12 @@ class EventList:
 
         Returns:
             Dict[str, Any]: A dictionary containing the event list's properties
-                and all contained events.
+                and all contained events in original format.
         """
         return_val: Dict[str, Any] = {
             "get_type": self.get_type(),
             "get_name": self.get_name(),
-            "events": [event.dump() for event in self._event_list],
+            "events": [event.dump() for pt, event in self._event_list],
         }
         return return_val
 
@@ -2359,8 +2359,10 @@ class Sequencer:
     """A class to sequence audio events and generate samples.
 
     Attributes:
-        instrument_lib (Dict[str, Instrument]): Dictionary of instruments, keyed by name.
-        event_lib (Dict[str, EventList]): Dictionary of event lists, keyed by name.
+        channels (Dict[str, Dict[str, EventList | List[Instrument]]]): Dictionary
+            where top-level keys are EventList names, each containing:
+            - "event_list": the EventList instance
+            - "instruments": list of associated Instrument instances
         name (str): Unique identifier for the sequencer.
         time (int): Current time in samples.
         active_notes (Dict[str, Tuple[Note, int]]): Active notes with their end times.
@@ -2370,65 +2372,138 @@ class Sequencer:
 
     def __init__(
         self,
-        instrument_lib: Dict[str, Instrument] | None = None,
-        event_lib: Dict[str, EventList] | None = None,
+        channels: Dict[str, Dict[str, EventList | List[Instrument]]] | None = None,
         name: str | None = None,
     ):
         """Initialize a Sequencer instance.
 
         Args:
-            instrument_lib (Dict[str, Instrument], optional): Initial dictionary of instruments.
-            event_lib (Dict[str, EventList], optional): Initial dictionary of event lists.
+            channels (Dict[str, Dict[str, EventList | List[Instrument]]], optional):
+                Dictionary where top-level keys are EventList names, each containing:
+                - "event_list": the EventList instance
+                - "instruments": list of associated Instrument instances
             name (str, optional): Unique identifier for the sequencer.
         """
         self._TYPE = "Sequencer"
-        self._instrument_lib = instrument_lib or {}
-        self._event_lib = event_lib or {}
+        self._channels: Dict[str, Dict[str, EventList | List[Instrument]]] = channels or {}
+        self._event_q: Dict[str, List[int]] = {}
         self._name = name or f"{self._TYPE}_{id(self)}"
         self._time: int = 0
         self._active_notes: Dict[str, Tuple[Note, int]] = {}
         self._next_event_time: int = 0
-        self._event_pointers = {k: 0 for k in self._event_lib}
+        self._event_pointers: Dict[str, int] = {k: 0 for k in self._channels}
+        self._start: bool = True
+        self._next_event: int = 0
         self.init()
 
-    def add_event_list(self, events: EventList) -> None:
-        """Add an event list to the sequencer.
+    def add_channel(
+        self,
+        name: str,
+        event_list: EventList,
+        instruments: List[Instrument] | None = None,
+    ) -> None:
+        """Add a channel to the sequencer.
 
         Args:
-            events (EventList): The event list to add.
+            name (str): The channel name (typically the EventList name).
+            event_list (EventList): The event list for this channel.
+            instruments (List[Instrument], optional): List of instruments for this channel.
         """
-        self._event_lib[events.get_name()] = events
+        self._channels[name] = {
+            "event_list": event_list,
+            "instruments": instruments or [],
+        }
+        self._event_pointers[name] = 0
+        self.generate_event_queue()
+
+    def get_channel(self, name: str) -> Dict[str, EventList | List[Instrument]]:
+        """Get a channel by name.
+
+        Args:
+            name (str): The channel name.
+
+        Returns:
+            Dict containing 'event_list' and 'instruments'.
+        """
+        if name in self._channels:
+            return self._channels[name]
+        raise ValueError(f"{name} channel not found in _channels")
+
+    def get_event_list(self, name: str) -> EventList:
+        """Get the EventList from a channel.
+
+        Args:
+            name (str): The channel name.
+
+        Returns:
+            EventList: The event list for this channel.
+        """
+        if name in self._channels:
+            return self._channels[name]["event_list"]
+        raise ValueError(f"{name} channel not found in _channels")
+
+    def get_instruments(self, name: str) -> List[Instrument]:
+        """Get the instruments from a channel.
+
+        Args:
+            name (str): The channel name.
+
+        Returns:
+            List[Instrument]: The instruments for this channel.
+        """
+        if name in self._channels:
+            return self._channels[name]["instruments"]
+        raise ValueError(f"{name} channel not found in _channels")
+
+    def remove_channel(self, name: str) -> None:
+        """Remove a channel from the sequencer.
+
+        Args:
+            name (str): The channel name to remove.
+        """
+        if name in self._channels:
+            del self._channels[name]
+            if name in self._event_pointers:
+                del self._event_pointers[name]
+            self.generate_event_queue()
+        else:
+            raise ValueError(f"{name} channel not found in _channels")
 
     def generate_event_queue(self) -> None:
-        pass # TODO
+        """Generate the event queue from all channels."""
+        self._event_q = {}
+        for key, channel in self._channels.items():
+            event_list = channel["event_list"]
+            self._event_q[key] = []
+            f = True
+            n = -1
+            while f:
+                r = event_list.next_event(n)
+                if isinstance(r, int):
+                    self._event_q[key].append(r)
+                    n = r + 1
+                else:
+                    f = False
+        print(self._event_q)
 
-    def add_instrument(self, instrument: Instrument) -> None:
-        """Add an instrument to the sequencer.
+    def add_instrument_to_channel(self, channel_name: str, instrument: Instrument) -> None:
+        """Add an instrument to an existing channel.
 
         Args:
+            channel_name (str): The channel name.
             instrument (Instrument): The instrument to add.
         """
-        self._instrument_lib[instrument.get_name()] = instrument
-
-    def add_instrument_lib(self, instrument_lib: Dict[str, Instrument]) -> None:
-        """Add a dictionary of instruments to the sequencer.
-
-        Args:
-            instrument_lib (Dict[str, Instrument]): Dictionary of instruments to add.
-        """
-        self._instrument_lib.update(instrument_lib)
-
-    def add_event_lib(self, event_lib: Dict[str, EventList]) -> None:
-        """Add a dictionary of event lists to the sequencer.
-
-        Args:
-            event_lib (Dict[str, EventList]): Dictionary of event lists to add.
-        """
-        self._event_lib.update(event_lib)
+        if channel_name in self._channels:
+            self._channels[channel_name]["instruments"].append(instrument)
+        else:
+            raise ValueError(f"{channel_name} channel not found in _channels")
 
     def init(self) -> None:
+        self.generate_event_queue()
         """Initialize or reset the sequencer state."""
-        self._time = 0
+        pass
+        
+        """self._time = 0
         self._active_notes = {}
         self._event_pointers = {k: 0 for k in self._event_lib}
         if self._event_lib:
@@ -2439,70 +2514,98 @@ class Sequencer:
             )
         else:
             self._next_event_time = float("inf")
+        """
 
-    def sample(self) -> float:
+    def sample(self) -> Tuple[float, ...]:
         """Generate the next audio sample by processing active notes.
 
         Returns:
-            float: The sum of samples from active notes.
+            Tuple[float, ...]: The samples from active notes.
         """
-        if self._time >= self._next_event_time:
-            self.process_events()
-        samples = np.array([note.sample() for note, _ in self._active_notes.values()])
-        to_remove = [
-            key
-            for key, (_, end_time) in self._active_notes.items()
-            if self._time >= end_time
-        ]
-        for key in to_remove:
-            note, _ = self._active_notes.pop(key)
-            note.set_off()
-        self._time += 1
-        return float(np.sum(samples))
+        if self._time == self._next_event_time:
+            scheduled_events: Dict[str, int] = {}
+            next_times: List[int] = []
 
-    def process_events(self) -> None:
-        """Process events at the current time, updating active notes."""
-        for list_name, el in self._event_lib.items():
-            pointer = self._event_pointers[list_name]
-            while (
-                pointer < len(el._event_list)
-                and el._event_list[pointer].get_time() <= self._time
-            ):
-                event = el.get_event(pointer)
-                for item in event.get_items():
-                    if isinstance(item, Event.AmNote):
-                        instr = self._instrument_lib.get(item._instrument)
-                        if not instr:
-                            continue
-                        note_obj = instr.get_note(item._note)
-                        if not note_obj:
-                            continue
-                        if item._action in ("add", "add_pluck"):
-                            note_obj.set_on()
-                            if item._action == "add_pluck" and hasattr(
-                                note_obj.get_note(), "sample_pluck"
-                            ):
-                                note_obj.get_note().sample_pluck()
-                            end_time = self._time + item._duration
-                            key = f"{item._instrument}_{item._note}_{self._time}"
-                            self._active_notes[key] = (note_obj, end_time)
-                        elif item._action == "rm":
-                            for k, (n, _) in list(self._active_notes.items()):
-                                if n == note_obj:
-                                    n.set_off()
-                                    del self._active_notes[k]
-                        elif item._action == "pluck" and hasattr(
-                            note_obj.get_note(), "sample_pluck"
-                        ):
-                            note_obj.get_note().sample_pluck()
-                    elif isinstance(item, Event.AmMSG):
-                        for instr in self._instrument_lib.values():
-                            instr.msg(item._msg)
-                pointer += 1
-            self._event_pointers[list_name] = pointer
-        next_times = [
-            el._event_list[pointer].get_time()
-            for list_name, pointer in self._event_pointers.items()
-            if pointer < len(self._event_lib[list_name]._event_list)
-        ]
-        self._next_event_time = min(next_times) if next_times else float("inf")
+            for name, channel in self._channels.items():
+                event_list = channel["event_list"]
+                event_time = event_list.next_event(self._time)
+                if event_time is not None and event_time == self._time:
+                    scheduled_events[name] = event_time
+
+                next_time = event_list.next_event(self._time + 1)
+                if next_time is not None:
+                    next_times.append(next_time)
+
+            if scheduled_events:
+                return self.process_events()
+
+            if next_times:
+                self._next_event_time = min(next_times)
+
+            self._time += 1
+        else:
+            pass
+
+        # samples = np.array([note.sample() for note, _ in self._active_notes.values()])
+        # to_remove = [
+        #     key
+        #     for key, (_, end_time) in self._active_notes.items()
+        #     if self._time >= end_time
+        # ]
+        # for key in to_remove:
+        #     note, _ = self._active_notes.pop(key)
+        #     note.set_off()
+        # self._time += 1
+        # return tuple(float(s) for s in samples)
+
+    def process_events(self) -> Tuple[float, ...]:
+        """Process events at the current time, updating active notes.
+
+        Returns:
+            Tuple[float, ...]: The samples from active notes.
+        """
+        return ()
+        # for list_name, el in self._event_lib.items():
+        #     pointer = self._event_pointers[list_name]
+        #     while (
+        #         pointer < len(el._event_list)
+        #         and el._event_list[pointer].get_time() <= self._time
+        #     ):
+        #         event = el.get_event(pointer)
+        #         for item in event.get_items():
+        #             if isinstance(item, Event.AmNote):
+        #                 instr = self._instrument_lib.get(item._instrument)
+        #                 if not instr:
+        #                     continue
+        #                 note_obj = instr.get_note(item._note)
+        #                 if not note_obj:
+        #                     continue
+        #                 if item._action in ("add", "add_pluck"):
+        #                     note_obj.set_on()
+        #                     if item._action == "add_pluck" and hasattr(
+        #                         note_obj.get_note(), "sample_pluck"
+        #                     ):
+        #                         note_obj.get_note().sample_pluck()
+        #                     end_time = self._time + item._duration
+        #                     key = f"{item._instrument}_{item._note}_{self._time}"
+        #                     self._active_notes[key] = (note_obj, end_time)
+        #                 elif item._action == "rm":
+        #                     for k, (n, _) in list(self._active_notes.items()):
+        #                         if n == note_obj:
+        #                             n.set_off()
+        #                             del self._active_notes[k]
+        #                 elif item._action == "pluck" and hasattr(
+        #                     note_obj.get_note(), "sample_pluck"
+        #                 ):
+        #                     note_obj.get_note().sample_pluck()
+        #             elif isinstance(item, Event.AmMSG):
+        #                 for instr in self._instrument_lib.values():
+        #                     instr.msg(item._msg)
+        #         pointer += 1
+        #     self._event_pointers[list_name] = pointer
+        # next_times = [
+        #     el._event_list[pointer].get_time()
+        #     for list_name, pointer in self._event_pointers.items()
+        #     if pointer < len(self._event_lib[list_name]._event_list)
+        # ]
+        # self._next_event_time = min(next_times) if next_times else float("inf")
