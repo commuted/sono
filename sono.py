@@ -1409,8 +1409,11 @@ class FixedAttenuate:
                         return_val[self._name]["get_type"] = self.get_type()
                     elif cmd == "get_name":
                         return_val[self._name]["get_name"] = self.get_name()
-                if self._a:
-                    self._a.msg(msg)
+        # Propagate to sub-element regardless of name match
+        if self._a:
+            a_val = self._a.msg(msg)
+            if a_val:
+                return_val[self._name]["a"] = a_val
         return return_val
 
     def dump(self) -> Dict[str, Any]:
