@@ -3753,5 +3753,477 @@ class TestChordNesting(unittest.TestCase):
         self.assertAlmostEqual(chord.sample(), 0.4, places=10)
 
 
+# =============================================================================
+# Event Tests
+# =============================================================================
+
+
+class TestEventDefaults(unittest.TestCase):
+    """Tests for Event default values after instantiation."""
+
+    def test_default_type(self):
+        """Check that default _TYPE is 'Event'."""
+        event = sl.Event(ptime=0)
+        self.assertEqual(event.get_type(), "Event")
+
+    def test_default_name_format(self):
+        """Check that default name starts with 'Event_'."""
+        event = sl.Event(ptime=0)
+        self.assertTrue(event.get_name().startswith("Event_"))
+
+    def test_default_name_is_unique(self):
+        """Check that each instance gets a unique name."""
+        event1 = sl.Event(ptime=0)
+        event2 = sl.Event(ptime=0)
+        self.assertNotEqual(event1.get_name(), event2.get_name())
+
+    def test_default_event_is_none(self):
+        """Check that default event item is None."""
+        event = sl.Event(ptime=0)
+        self.assertIsNone(event.get_event())
+
+    def test_ptime_is_set(self):
+        """Check that ptime is set correctly."""
+        event = sl.Event(ptime=100)
+        self.assertEqual(event.get_time(), 100)
+
+
+class TestEventCustomArgs(unittest.TestCase):
+    """Tests for Event initialization with custom arguments."""
+
+    def test_custom_name(self):
+        """Check that custom name is set correctly."""
+        event = sl.Event(ptime=0, name="my_event")
+        self.assertEqual(event.get_name(), "my_event")
+
+    def test_custom_ptime(self):
+        """Check that custom ptime is set correctly."""
+        event = sl.Event(ptime=44100)
+        self.assertEqual(event.get_time(), 44100)
+
+    def test_custom_event_amchord(self):
+        """Check that custom AmChord event is set correctly."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "add", 44100)
+        event = sl.Event(ptime=0, event=am_chord)
+        self.assertEqual(event.get_event(), am_chord)
+
+    def test_custom_event_amexception(self):
+        """Check that custom AmException event is set correctly."""
+        am_exc = sl.Event.AmException("test error")
+        event = sl.Event(ptime=0, event=am_exc)
+        self.assertEqual(event.get_event(), am_exc)
+
+    def test_custom_event_amlyric(self):
+        """Check that custom AmLyric event is set correctly."""
+        am_lyric = sl.Event.AmLyric("Hello world")
+        event = sl.Event(ptime=0, event=am_lyric)
+        self.assertEqual(event.get_event(), am_lyric)
+
+    def test_custom_event_ammsg(self):
+        """Check that custom AmMSG event is set correctly."""
+        am_msg = sl.Event.AmMSG({"test": {"cmd": [1, 2, 3]}})
+        event = sl.Event(ptime=0, event=am_msg)
+        self.assertEqual(event.get_event(), am_msg)
+
+
+class TestEventValidation(unittest.TestCase):
+    """Tests for Event constructor validation."""
+
+    def test_negative_ptime_raises_error(self):
+        """Check that negative ptime raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            sl.Event(ptime=-1)
+        self.assertIn("non-negative", str(ctx.exception))
+
+    def test_zero_ptime_is_valid(self):
+        """Check that ptime=0 is valid."""
+        event = sl.Event(ptime=0)
+        self.assertEqual(event.get_time(), 0)
+
+
+class TestEventSetters(unittest.TestCase):
+    """Tests for Event setter methods."""
+
+    def test_set_time(self):
+        """Check that set_time updates the time."""
+        event = sl.Event(ptime=0)
+        event.set_time(44100)
+        self.assertEqual(event.get_time(), 44100)
+
+    def test_set_time_to_zero(self):
+        """Check that set_time accepts zero."""
+        event = sl.Event(ptime=100)
+        event.set_time(0)
+        self.assertEqual(event.get_time(), 0)
+
+    def test_set_time_negative_raises_error(self):
+        """Check that set_time with negative value raises ValueError."""
+        event = sl.Event(ptime=0)
+        with self.assertRaises(ValueError):
+            event.set_time(-1)
+
+    def test_set_name(self):
+        """Check that set_name updates the name."""
+        event = sl.Event(ptime=0)
+        event.set_name("new_name")
+        self.assertEqual(event.get_name(), "new_name")
+
+
+class TestEventAddEvent(unittest.TestCase):
+    """Tests for Event add_event method."""
+
+    def test_add_event_amchord(self):
+        """Check that add_event accepts AmChord."""
+        event = sl.Event(ptime=0)
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "add", 44100)
+        event.add_event(am_chord)
+        self.assertEqual(event.get_event(), am_chord)
+
+    def test_add_event_amexception(self):
+        """Check that add_event accepts AmException."""
+        event = sl.Event(ptime=0)
+        am_exc = sl.Event.AmException("error message")
+        event.add_event(am_exc)
+        self.assertEqual(event.get_event(), am_exc)
+
+    def test_add_event_amlyric(self):
+        """Check that add_event accepts AmLyric."""
+        event = sl.Event(ptime=0)
+        am_lyric = sl.Event.AmLyric("lyrics here")
+        event.add_event(am_lyric)
+        self.assertEqual(event.get_event(), am_lyric)
+
+    def test_add_event_ammsg(self):
+        """Check that add_event accepts AmMSG."""
+        event = sl.Event(ptime=0)
+        am_msg = sl.Event.AmMSG({"key": "value"})
+        event.add_event(am_msg)
+        self.assertEqual(event.get_event(), am_msg)
+
+    def test_add_event_invalid_string_raises_error(self):
+        """Check that add_event rejects string."""
+        event = sl.Event(ptime=0)
+        with self.assertRaises(ValueError) as ctx:
+            event.add_event("invalid")
+        self.assertIn("must be one of", str(ctx.exception))
+
+    def test_add_event_invalid_int_raises_error(self):
+        """Check that add_event rejects int."""
+        event = sl.Event(ptime=0)
+        with self.assertRaises(ValueError):
+            event.add_event(42)
+
+    def test_add_event_invalid_dict_raises_error(self):
+        """Check that add_event rejects plain dict."""
+        event = sl.Event(ptime=0)
+        with self.assertRaises(ValueError):
+            event.add_event({"not": "AmMSG"})
+
+    def test_add_event_replaces_existing(self):
+        """Check that add_event replaces existing event."""
+        event = sl.Event(ptime=0)
+        lyric1 = sl.Event.AmLyric("first")
+        lyric2 = sl.Event.AmLyric("second")
+        event.add_event(lyric1)
+        event.add_event(lyric2)
+        self.assertEqual(event.get_event(), lyric2)
+
+
+class TestEventAmChord(unittest.TestCase):
+    """Tests for Event.AmChord embedded class."""
+
+    def test_amchord_creation(self):
+        """Check that AmChord can be created."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "add", 44100)
+        self.assertIsNotNone(am_chord)
+
+    def test_amchord_instrument(self):
+        """Check that instrument is stored correctly."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("guitar", chord, "add", 44100)
+        self.assertEqual(am_chord._instrument, "guitar")
+
+    def test_amchord_chord(self):
+        """Check that chord is stored correctly."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "add", 44100)
+        self.assertEqual(am_chord._chord, chord)
+
+    def test_amchord_action_add(self):
+        """Check that action 'add' is valid."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "add", 44100)
+        self.assertEqual(am_chord._action, "add")
+
+    def test_amchord_action_rm(self):
+        """Check that action 'rm' is valid."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "rm", 44100)
+        self.assertEqual(am_chord._action, "rm")
+
+    def test_amchord_action_add_pluck(self):
+        """Check that action 'add_pluck' is valid."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "add_pluck", 44100)
+        self.assertEqual(am_chord._action, "add_pluck")
+
+    def test_amchord_action_pluck(self):
+        """Check that action 'pluck' is valid."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "pluck", 44100)
+        self.assertEqual(am_chord._action, "pluck")
+
+    def test_amchord_action_invalid_raises_error(self):
+        """Check that invalid action raises ValueError."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        with self.assertRaises(ValueError) as ctx:
+            sl.Event.AmChord("piano", chord, "invalid", 44100)
+        self.assertIn("must be one of", str(ctx.exception))
+
+    def test_amchord_duration(self):
+        """Check that duration is stored correctly."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "add", 88200)
+        self.assertEqual(am_chord._duration, 88200)
+
+    def test_amchord_duration_zero_is_valid(self):
+        """Check that duration=0 is valid."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "add", 0)
+        self.assertEqual(am_chord._duration, 0)
+
+    def test_amchord_duration_negative_raises_error(self):
+        """Check that negative duration raises ValueError."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        with self.assertRaises(ValueError) as ctx:
+            sl.Event.AmChord("piano", chord, "add", -1)
+        self.assertIn("non-negative", str(ctx.exception))
+
+    def test_amchord_invalid_chord_raises_error(self):
+        """Check that non-Chord raises ValueError."""
+        with self.assertRaises(ValueError) as ctx:
+            sl.Event.AmChord("piano", "not a chord", "add", 44100)
+        self.assertIn("Chord instance", str(ctx.exception))
+
+    def test_amchord_sound_element_raises_error(self):
+        """Check that SoundElement (not Chord) raises ValueError."""
+        sound = sl.SoundElement()
+        with self.assertRaises(ValueError):
+            sl.Event.AmChord("piano", sound, "add", 44100)
+
+
+class TestEventAmException(unittest.TestCase):
+    """Tests for Event.AmException embedded class."""
+
+    def test_amexception_creation(self):
+        """Check that AmException can be created."""
+        am_exc = sl.Event.AmException("test error")
+        self.assertIsNotNone(am_exc)
+
+    def test_amexception_message(self):
+        """Check that message is stored correctly."""
+        am_exc = sl.Event.AmException("error occurred")
+        self.assertEqual(am_exc._message, "error occurred")
+
+    def test_amexception_empty_message(self):
+        """Check that empty message is allowed."""
+        am_exc = sl.Event.AmException("")
+        self.assertEqual(am_exc._message, "")
+
+
+class TestEventAmLyric(unittest.TestCase):
+    """Tests for Event.AmLyric embedded class."""
+
+    def test_amlyric_creation(self):
+        """Check that AmLyric can be created."""
+        am_lyric = sl.Event.AmLyric("hello world")
+        self.assertIsNotNone(am_lyric)
+
+    def test_amlyric_text(self):
+        """Check that text is stored correctly."""
+        am_lyric = sl.Event.AmLyric("sing along")
+        self.assertEqual(am_lyric._text, "sing along")
+
+    def test_amlyric_empty_text(self):
+        """Check that empty text is allowed."""
+        am_lyric = sl.Event.AmLyric("")
+        self.assertEqual(am_lyric._text, "")
+
+    def test_amlyric_multiline_text(self):
+        """Check that multiline text is allowed."""
+        am_lyric = sl.Event.AmLyric("line1\nline2\nline3")
+        self.assertEqual(am_lyric._text, "line1\nline2\nline3")
+
+
+class TestEventAmMSG(unittest.TestCase):
+    """Tests for Event.AmMSG embedded class."""
+
+    def test_ammsg_creation(self):
+        """Check that AmMSG can be created."""
+        am_msg = sl.Event.AmMSG({"test": "value"})
+        self.assertIsNotNone(am_msg)
+
+    def test_ammsg_msg(self):
+        """Check that msg is stored correctly."""
+        msg_dict = {"element": {"set_frequency": [440.0]}}
+        am_msg = sl.Event.AmMSG(msg_dict)
+        self.assertEqual(am_msg._msg, msg_dict)
+
+    def test_ammsg_empty_dict(self):
+        """Check that empty dict is allowed."""
+        am_msg = sl.Event.AmMSG({})
+        self.assertEqual(am_msg._msg, {})
+
+    def test_ammsg_nested_dict(self):
+        """Check that nested dict is allowed."""
+        msg_dict = {"a": {"b": {"c": [1, 2, 3]}}}
+        am_msg = sl.Event.AmMSG(msg_dict)
+        self.assertEqual(am_msg._msg, msg_dict)
+
+
+class TestEventDump(unittest.TestCase):
+    """Tests for Event dump method."""
+
+    def test_dump_contains_required_keys(self):
+        """Check that dump contains all required keys."""
+        event = sl.Event(ptime=100, name="test_event")
+        dump = event.dump()
+        self.assertIn("get_type", dump)
+        self.assertIn("get_time", dump)
+        self.assertIn("get_name", dump)
+        self.assertIn("event", dump)
+
+    def test_dump_values_match(self):
+        """Check that dump values match the event's properties."""
+        event = sl.Event(ptime=44100, name="my_event")
+        dump = event.dump()
+        self.assertEqual(dump["get_type"], "Event")
+        self.assertEqual(dump["get_time"], 44100)
+        self.assertEqual(dump["get_name"], "my_event")
+        self.assertIsNone(dump["event"])
+
+    def test_dump_with_amchord(self):
+        """Check that dump serializes AmChord correctly."""
+        chord = sl.Chord().make_a_chord((4, "C", "major"))
+        am_chord = sl.Event.AmChord("piano", chord, "add", 44100)
+        event = sl.Event(ptime=0, name="test")
+        event.add_event(am_chord)
+        dump = event.dump()
+
+        self.assertIsNotNone(dump["event"])
+        self.assertEqual(dump["event"]["type"], "AmChord")
+        self.assertEqual(dump["event"]["instrument"], "piano")
+        self.assertEqual(dump["event"]["action"], "add")
+        self.assertEqual(dump["event"]["duration"], 44100)
+        self.assertIn("chord", dump["event"])
+        self.assertEqual(dump["event"]["chord"]["get_type"], "Chord")
+
+    def test_dump_with_amexception(self):
+        """Check that dump serializes AmException correctly."""
+        am_exc = sl.Event.AmException("error message")
+        event = sl.Event(ptime=0, name="test")
+        event.add_event(am_exc)
+        dump = event.dump()
+
+        self.assertIsNotNone(dump["event"])
+        self.assertEqual(dump["event"]["type"], "AmException")
+        self.assertEqual(dump["event"]["message"], "error message")
+
+    def test_dump_with_amlyric(self):
+        """Check that dump serializes AmLyric correctly."""
+        am_lyric = sl.Event.AmLyric("song lyrics")
+        event = sl.Event(ptime=0, name="test")
+        event.add_event(am_lyric)
+        dump = event.dump()
+
+        self.assertIsNotNone(dump["event"])
+        self.assertEqual(dump["event"]["type"], "AmLyric")
+        self.assertEqual(dump["event"]["text"], "song lyrics")
+
+    def test_dump_with_ammsg(self):
+        """Check that dump serializes AmMSG correctly."""
+        msg_dict = {"elem": {"cmd": [1, 2]}}
+        am_msg = sl.Event.AmMSG(msg_dict)
+        event = sl.Event(ptime=0, name="test")
+        event.add_event(am_msg)
+        dump = event.dump()
+
+        self.assertIsNotNone(dump["event"])
+        self.assertEqual(dump["event"]["type"], "AmMSG")
+        self.assertEqual(dump["event"]["msg"], msg_dict)
+
+
+class TestEventMsg(unittest.TestCase):
+    """Tests for Event msg method."""
+
+    def test_msg_get_type(self):
+        """Check that msg can get type."""
+        event = sl.Event(ptime=0, name="test_event")
+        result = event.msg({"test_event": {"get_type": []}})
+        self.assertEqual(result["test_event"]["get_type"], "Event")
+
+    def test_msg_get_time(self):
+        """Check that msg can get time."""
+        event = sl.Event(ptime=44100, name="test_event")
+        result = event.msg({"test_event": {"get_time": []}})
+        self.assertEqual(result["test_event"]["get_time"], 44100)
+
+    def test_msg_set_time(self):
+        """Check that msg can set time."""
+        event = sl.Event(ptime=0, name="test_event")
+        event.msg({"test_event": {"set_time": [88200]}})
+        self.assertEqual(event.get_time(), 88200)
+
+    def test_msg_get_name(self):
+        """Check that msg can get name."""
+        event = sl.Event(ptime=0, name="test_event")
+        result = event.msg({"test_event": {"get_name": []}})
+        self.assertEqual(result["test_event"]["get_name"], "test_event")
+
+    def test_msg_set_name(self):
+        """Check that msg can set name."""
+        event = sl.Event(ptime=0, name="old_name")
+        event.msg({"old_name": {"set_name": ["new_name"]}})
+        self.assertEqual(event.get_name(), "new_name")
+
+    def test_msg_get_event(self):
+        """Check that msg can get event."""
+        am_lyric = sl.Event.AmLyric("test")
+        event = sl.Event(ptime=0, name="test_event", event=am_lyric)
+        result = event.msg({"test_event": {"get_event": []}})
+        self.assertEqual(result["test_event"]["get_event"], am_lyric)
+
+    def test_msg_ignores_other_names(self):
+        """Check that msg ignores messages for other names."""
+        event = sl.Event(ptime=100, name="test_event")
+        result = event.msg({"other_name": {"set_time": [0]}})
+        # Time should remain unchanged
+        self.assertEqual(event.get_time(), 100)
+
+    def test_msg_multiple_commands(self):
+        """Check that msg can handle multiple commands."""
+        event = sl.Event(ptime=44100, name="test_event")
+        result = event.msg({
+            "test_event": {
+                "get_type": [],
+                "get_time": [],
+                "get_name": []
+            }
+        })
+        self.assertEqual(result["test_event"]["get_type"], "Event")
+        self.assertEqual(result["test_event"]["get_time"], 44100)
+        self.assertEqual(result["test_event"]["get_name"], "test_event")
+
+    def test_msg_set_name_uses_current_name_for_return(self):
+        """Check that msg uses current name for return value after set_name."""
+        event = sl.Event(ptime=0, name="old_name")
+        result = event.msg({"old_name": {"set_name": ["new_name"], "get_type": []}})
+        # The return should use the original name (captured at start)
+        self.assertIn("old_name", result)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -39,36 +39,38 @@ class Event:
         self._event = event if event else None
         self._name = name or f"{self._TYPE}_{id(self)}"
 
-    class AmNote:
-        """A class to represent a note action in an event.
+    class AmChord:
+        """A class to represent a chord action in an event.
 
         Attributes:
             instrument (str): The instrument name.
-            note (str): The note name.
+            chord (Chord): The chord to play.
             action (str): The action to perform (add, rm, add_pluck, pluck).
-            duration (int): Duration of the note in samples.
+            duration (int): Duration of the chord in samples.
         """
 
-        def __init__(self, instrument: str, note: str, action: str, duration: int):
-            """Initialize an AmNote instance.
+        def __init__(self, instrument: str, chord: Chord, action: str, duration: int):
+            """Initialize an AmChord instance.
 
             Args:
                 instrument (str): The instrument name.
-                note (str): The note name.
+                chord (Chord): The chord to play.
                 action (str): The action to perform (add, rm, add_pluck, pluck).
-                duration (int): Duration of the note in samples.
+                duration (int): Duration of the chord in samples.
 
             Raises:
-                ValueError: If action is invalid or duration is negative.
+                ValueError: If action is invalid, duration is negative, or chord is not a Chord.
             """
             if duration < 0:
                 raise ValueError("Duration must be non-negative")
+            if not isinstance(chord, Chord):
+                raise ValueError("chord must be a Chord instance")
             self._instrument = instrument
-            self._note = note
+            self._chord = chord
             self._duration = duration
             if action not in ("add", "rm", "add_pluck", "pluck"):
                 raise ValueError(
-                    "AmNote action must be one of: add, rm, add_pluck, pluck"
+                    "AmChord action must be one of: add, rm, add_pluck, pluck"
                 )
             self._action = action
 
@@ -117,12 +119,19 @@ class Event:
             """
             self._msg = msg
 
-    def add(self, item: object) -> None:
+    def add_event(self, item: "Event.AmChord | Event.AmException | Event.AmLyric | Event.AmMSG") -> None:
         """Add an item to the event.
 
         Args:
-            item (object): The item to add (e.g., AmNote, AmMSG).
+            item: The item to add (AmChord, AmException, AmLyric, or AmMSG).
+
+        Raises:
+            ValueError: If item is not one of the valid event types.
         """
+        if not isinstance(item, (Event.AmChord, Event.AmException, Event.AmLyric, Event.AmMSG)):
+            raise ValueError(
+                "item must be one of: Event.AmChord, Event.AmException, Event.AmLyric, Event.AmMSG"
+            )
         self._event = item
 
     def get_type(self) -> str:
@@ -171,10 +180,10 @@ class Event:
         self._name = name
 
     def get_event(self) -> object:
-        """Get the list of event items.
+        """Get the event item.
 
         Returns:
-            object: The item (e.g., AmNote, AmMSG).
+            object: The event item (AmChord, AmException, AmLyric, or AmMSG), or None if not set.
         """
         return self._event
 
@@ -187,31 +196,69 @@ class Event:
         Returns:
             Dict[str, Any]: A dictionary with the results of the commands.
         """
-        return_val: Dict[str, Any] = {self._name: {}}
+        current_name = self._name
+        return_val: Dict[str, Any] = {current_name: {}}
         for name in msg:
-            if name == self._name:
+            if name == current_name:
                 for cmd, val in msg[name].items():
                     if cmd == "get_time":
-                        return_val[self._name]["get_time"] = self.get_time()
+                        return_val[current_name]["get_time"] = self.get_time()
+                    elif cmd == "set_time":
+                        self.set_time(val[0])
                     elif cmd == "get_type":
-                        return_val[self._name]["get_type"] = self.get_type()
+                        return_val[current_name]["get_type"] = self.get_type()
                     elif cmd == "get_name":
-                        return_val[self._name]["get_name"] = self.get_name()
+                        return_val[current_name]["get_name"] = self.get_name()
+                    elif cmd == "set_name":
+                        self.set_name(val[0])
                     elif cmd == "get_event":
-                        return_val[self._name]["get_event"] = self.get_event()
+                        return_val[current_name]["get_event"] = self.get_event()
         return return_val
 
-    def dump(self) -> Dict[str, Any]:
-        """Serialize the event's state for storage.
+    def _dump_event_item(self) -> Dict[str, Any] | None:
+        """Serialize the embedded event item.
 
         Returns:
-            Dict[str, Any]: A dictionary containing the event's properties and items.
+            Dict[str, Any] | None: Serialized event item, or None if not set.
+        """
+        if self._event is None:
+            return None
+        if isinstance(self._event, Event.AmChord):
+            return {
+                "type": "AmChord",
+                "instrument": self._event._instrument,
+                "chord": self._event._chord.dump(),
+                "action": self._event._action,
+                "duration": self._event._duration,
+            }
+        elif isinstance(self._event, Event.AmException):
+            return {
+                "type": "AmException",
+                "message": self._event._message,
+            }
+        elif isinstance(self._event, Event.AmLyric):
+            return {
+                "type": "AmLyric",
+                "text": self._event._text,
+            }
+        elif isinstance(self._event, Event.AmMSG):
+            return {
+                "type": "AmMSG",
+                "msg": self._event._msg,
+            }
+        return None
+
+    def dump(self) -> Dict[str, Any]:
+        """Serialize the event's state for storage and reproduction.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing all state needed to reproduce the event.
         """
         return {
             "get_type": self.get_type(),
             "get_time": self.get_time(),
             "get_name": self.get_name(),
-            "get_event": self.get_event()
+            "event": self._dump_event_item(),
         }
 
 
