@@ -215,25 +215,25 @@ class SoundElement:
         }
 
     @staticmethod
-    def midi_note(key_no: int, div: int = 12) -> float:
+    def midi_note(key_no: int, steps_per_octave: int = 12) -> float:
         """Calculate the frequency for a MIDI note number.
 
         Args:
             key_no (int): MIDI note number.
-            div (int): Number of divisions per octave (default: 12 for equal temperament).
+            steps_per_octave (int): Number of steps per octave (default: 12 for equal temperament).
 
         Returns:
             float: The frequency in Hz.
         """
-        return 440.0 * 2 ** ((key_no - 69) / div)
+        return 440.0 * 2 ** ((key_no - 69) / steps_per_octave)
 
     @staticmethod
-    def midi_key_from_freq(frequency: float, div: int = 12) -> float:
+    def midi_key_from_freq(frequency: float, steps_per_octave: int = 12) -> float:
         """Calculate the MIDI note number from a frequency.
 
         Args:
             frequency (float): The frequency in Hz.
-            div (int): Number of divisions per octave (default: 12).
+            steps_per_octave (int): Number of steps per octave (default: 12).
 
         Returns:
             float: The MIDI note number (fractional).
@@ -243,7 +243,7 @@ class SoundElement:
         """
         if frequency <= 0:
             raise ValueError("Frequency must be positive")
-        return div * log2(frequency / 440.0) + 69
+        return steps_per_octave * log2(frequency / 440.0) + 69
 
     def set_frequency_to_midi_note(self, midi_key_no: int) -> float:
         """Set the frequency to match a MIDI note number.
