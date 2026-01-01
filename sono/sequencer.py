@@ -10,6 +10,14 @@ from typing import Any, Dict, List, Tuple
 from .music import Chord, Instrument
 
 
+class DuplicateAmChordError(Exception):
+    """Exception raised when attempting to add a second AmChord at the same ptime."""
+
+    def __init__(self, ptime: int):
+        self.ptime = ptime
+        super().__init__(f"An AmChord already exists at ptime {ptime}")
+
+
 class Event:
     """A class to represent a timed event in a sequence.
 
@@ -262,28 +270,30 @@ class Event:
         }
 
 
-class EventList:
-    """A class to manage a list of timed events.
+class Channel:
+    """A class to manage a channel of timed events.
 
     Attributes:
         event_list (List[Tuple[int, Event]]): List of (ptime, Event) tuples, sorted by time.
-        name (str): Unique identifier for the event list.
+        name (str): Unique identifier for the channel.
     """
 
     def __init__(self, event_list: List[Event] | None = None, name: str | None = None):
-        """Initialize an EventList instance.
+        """Initialize a Channel instance.
 
         Args:
             event_list (List[Event], optional): Initial list of events.
-            name (str, optional): Unique identifier for the event list.
+            name (str, optional): Unique identifier for the channel.
+
+        Raises:
+            DuplicateAmChordError: If multiple AmChords exist at the same ptime.
         """
-        self._TYPE = "EventList"
+        self._TYPE = "Channel"
         self._event_list: List[Tuple[int, Event]] = []
+        self._name = name or f"{self._TYPE}_{id(self)}"
         if event_list:
             for event in event_list:
-                self._event_list.append((event.get_time(), event))
-            self._event_list.sort(key=lambda e: e[0])
-        self._name = name or f"{self._TYPE}_{id(self)}"
+                self.add_event(event)
 
     def add_event(self, entry: Event) -> None:
         """Add an event to the list and sort by time.
@@ -293,9 +303,16 @@ class EventList:
 
         Raises:
             ValueError: If entry is not an Event instance.
+            DuplicateAmChordError: If an AmChord already exists at the same ptime.
         """
         if not isinstance(entry, Event):
             raise ValueError("add_event must be an Event instance")
+        # Check for duplicate AmChord at same ptime
+        if isinstance(entry.get_event(), Event.AmChord):
+            ptime = entry.get_time()
+            for pt, event in self._event_list:
+                if pt == ptime and isinstance(event.get_event(), Event.AmChord):
+                    raise DuplicateAmChordError(ptime)
         self._event_list.append((entry.get_time(), entry))
         self._event_list.sort(key=lambda e: e[0])
 
@@ -323,31 +340,31 @@ class EventList:
         """
         return [event for pt, event in self._event_list if pt == ptime]
 
-    def remove_event(self, entry: Event) -> None:
-        """Remove an event from the list.
+    def remove_event(self, name: str) -> None:
+        """Remove an event from the list by name.
 
         Args:
-            entry (Event): The event to remove.
+            name (str): The name identifier of the event to remove.
 
         Raises:
-            ValueError: If entry is not in the list.
+            ValueError: If no event with that name is found.
         """
         for i, (pt, event) in enumerate(self._event_list):
-            if event is entry:
+            if event.get_name() == name:
                 self._event_list.pop(i)
                 return
-        raise ValueError("Event not found in list")
+        raise ValueError(f"Event '{name}' not found in list")
 
     def get_name(self) -> str:
-        """Get the unique identifier of the event list.
+        """Get the unique identifier of the channel.
 
         Returns:
-            str: The event list's name.
+            str: The channel's name.
         """
         return self._name
 
     def set_name(self, name: str) -> None:
-        """Set the unique identifier of the event list.
+        """Set the unique identifier of the channel.
 
         Args:
             name (str): The new name.
@@ -355,10 +372,10 @@ class EventList:
         self._name = name
 
     def get_type(self) -> str:
-        """Get the type identifier of the event list.
+        """Get the type identifier of the channel.
 
         Returns:
-            str: The type string ("EventList").
+            str: The type string ("Channel").
         """
         return self._TYPE
 
@@ -402,44 +419,47 @@ class EventList:
         """Process control messages to set or get properties.
 
         Connects canonically to underlying Event msg interfaces, allowing
-        messages to be routed through to individual events in the list.
+        messages to be routed through to individual events in the channel.
 
         Args:
             msg (Dict[str, Dict[str, List]]): A dictionary of commands for this
-                event list and/or its contained events.
+                channel and/or its contained events.
 
         Returns:
             Dict[str, Any]: A dictionary with the results of the commands,
                 including results from underlying events.
         """
-        return_val: Dict[str, Any] = {self._name: {}}
+        current_name = self._name
+        return_val: Dict[str, Any] = {current_name: {}}
         for name in msg:
-            if name == self._name:
+            if name == current_name:
                 for cmd, val in msg[name].items():
                     if cmd == "get_name":
-                        return_val[self._name]["get_name"] = self.get_name()
+                        return_val[current_name]["get_name"] = self.get_name()
+                    elif cmd == "set_name":
+                        self.set_name(val[0])
                     elif cmd == "get_type":
-                        return_val[self._name]["get_type"] = self.get_type()
+                        return_val[current_name]["get_type"] = self.get_type()
                     elif cmd == "get_event_list":
-                        return_val[self._name]["get_event_list"] = self.get_event_list()
+                        return_val[current_name]["get_event_list"] = self.get_event_list()
                     elif cmd == "next_event":
-                        return_val[self._name]["next_event"] = self.next_event(val[0])
+                        return_val[current_name]["next_event"] = self.next_event(val[0])
                     elif cmd == "get_ptime_list":
-                        return_val[self._name]["get_ptime_list"] = self.get_ptime_list()
+                        return_val[current_name]["get_ptime_list"] = self.get_ptime_list()
                     elif cmd == "get_events":
-                        return_val[self._name]["get_events"] = self.get_events(val[0])
+                        return_val[current_name]["get_events"] = self.get_events(val[0])
                 # Route messages to underlying events
                 for pt, event in self._event_list:
                     event_val = event.msg(msg)
                     if event_val:
-                        return_val[self._name][event.get_name()] = event_val
+                        return_val[current_name][event.get_name()] = event_val
         return return_val
 
     def dump(self) -> Dict[str, Any]:
-        """Serialize the event list's state for storage.
+        """Serialize the channel's state for storage.
 
         Returns:
-            Dict[str, Any]: A dictionary containing the event list's properties
+            Dict[str, Any]: A dictionary containing the channel's properties
                 and all contained events in original format.
         """
         return_val: Dict[str, Any] = {
@@ -454,33 +474,33 @@ class Sequencer:
     """A class to sequence audio events and generate samples.
 
     Attributes:
-        channels (Dict[str, Dict[str, EventList | List[Instrument]]]): Dictionary
-            where top-level keys are EventList names, each containing:
-            - "event_list": the EventList instance
+        channels (Dict[str, Dict[str, Channel | List[Instrument]]]): Dictionary
+            where top-level keys are Channel names, each containing:
+            - "event_list": the Channel instance
             - "instruments": list of associated Instrument instances
         name (str): Unique identifier for the sequencer.
         time (int): Current time in samples.
         active_notes (Dict[str, Tuple[Chord, int]]): Active chords with their end times.
         next_event_time (int): Time of the next event to process.
-        event_pointers (Dict[str, int]): Event pointers for each event list.
+        event_pointers (Dict[str, int]): Event pointers for each channel.
     """
 
     def __init__(
         self,
-        channels: Dict[str, Dict[str, EventList | List[Instrument]]] | None = None,
+        channels: Dict[str, Dict[str, Channel | List[Instrument]]] | None = None,
         name: str | None = None,
     ):
         """Initialize a Sequencer instance.
 
         Args:
-            channels (Dict[str, Dict[str, EventList | List[Instrument]]], optional):
-                Dictionary where top-level keys are EventList names, each containing:
-                - "event_list": the EventList instance
+            channels (Dict[str, Dict[str, Channel | List[Instrument]]], optional):
+                Dictionary where top-level keys are Channel names, each containing:
+                - "event_list": the Channel instance
                 - "instruments": list of associated Instrument instances
             name (str, optional): Unique identifier for the sequencer.
         """
         self._TYPE = "Sequencer"
-        self._channels: Dict[str, Dict[str, EventList | List[Instrument]]] = channels or {}
+        self._channels: Dict[str, Dict[str, Channel | List[Instrument]]] = channels or {}
         self._event_q: Dict[str, List[int]] = {}
         self._name = name or f"{self._TYPE}_{id(self)}"
         self._time: int = 0
@@ -494,14 +514,14 @@ class Sequencer:
     def add_channel(
         self,
         name: str,
-        event_list: EventList,
+        event_list: Channel,
         instruments: List[Instrument] | None = None,
     ) -> None:
         """Add a channel to the sequencer.
 
         Args:
-            name (str): The channel name (typically the EventList name).
-            event_list (EventList): The event list for this channel.
+            name (str): The channel name (typically the Channel name).
+            event_list (Channel): The channel instance for this channel.
             instruments (List[Instrument], optional): List of instruments for this channel.
         """
         self._channels[name] = {
@@ -511,7 +531,7 @@ class Sequencer:
         self._event_pointers[name] = 0
         self.generate_event_queue()
 
-    def get_channel(self, name: str) -> Dict[str, EventList | List[Instrument]]:
+    def get_channel(self, name: str) -> Dict[str, Channel | List[Instrument]]:
         """Get a channel by name.
 
         Args:
@@ -524,14 +544,14 @@ class Sequencer:
             return self._channels[name]
         raise ValueError(f"{name} channel not found in _channels")
 
-    def get_event_list(self, name: str) -> EventList:
-        """Get the EventList from a channel.
+    def get_event_list(self, name: str) -> Channel:
+        """Get the Channel from a channel entry.
 
         Args:
             name (str): The channel name.
 
         Returns:
-            EventList: The event list for this channel.
+            Channel: The channel instance for this channel entry.
         """
         if name in self._channels:
             return self._channels[name]["event_list"]

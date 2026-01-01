@@ -45,8 +45,9 @@ from .music import (
 
 # Sequencing
 from .sequencer import (
+    DuplicateAmChordError,
     Event,
-    EventList,
+    Channel,
     Sequencer,
 )
 
@@ -62,8 +63,9 @@ __all__ = [
     "Chord",
     "Instrument",
     # Sequencer
+    "DuplicateAmChordError",
     "Event",
-    "EventList",
+    "Channel",
     "Sequencer",
 ]
 
