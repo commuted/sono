@@ -543,14 +543,15 @@ class MultiplyElements:
                         return_val[self._name]["sample"] = self.sample()
                     elif cmd == "get_scale":
                         return_val[self._name]["get_scale"] = self.get_scale()
-                if self._a:
-                    a_val = self._a.msg(msg)
-                    if a_val:
-                        return_val[self._name]["a"] = a_val
-                if self._b:
-                    b_val = self._b.msg(msg)
-                    if b_val:
-                        return_val[self._name]["b"] = b_val
+        # Propagate to sub-elements regardless of name match
+        if self._a:
+            a_val = self._a.msg(msg)
+            if a_val:
+                return_val[self._name]["a"] = a_val
+        if self._b:
+            b_val = self._b.msg(msg)
+            if b_val:
+                return_val[self._name]["b"] = b_val
         return return_val
 
     def set_on(self) -> None:
@@ -752,14 +753,15 @@ class MixElements:
                         self.set_off()
                     elif cmd == "sample":
                         return_val[self._name]["sample"] = self.sample()
-                if self._a:
-                    a_val = self._a.msg(msg)
-                    if a_val:
-                        return_val[self._name]["a"] = a_val
-                if self._b:
-                    b_val = self._b.msg(msg)
-                    if b_val:
-                        return_val[self._name]["b"] = b_val
+        # Propagate to sub-elements regardless of name match
+        if self._a:
+            a_val = self._a.msg(msg)
+            if a_val:
+                return_val[self._name]["a"] = a_val
+        if self._b:
+            b_val = self._b.msg(msg)
+            if b_val:
+                return_val[self._name]["b"] = b_val
         return return_val
 
     def sample(self) -> float:
@@ -961,14 +963,15 @@ class SumElements:
                         self.set_off()
                     elif cmd == "sample":
                         return_val[self._name]["sample"] = self.sample()
-                if self._a:
-                    a_val = self._a.msg(msg)
-                    if a_val:
-                        return_val[self._name]["a"] = a_val
-                if self._b:
-                    b_val = self._b.msg(msg)
-                    if b_val:
-                        return_val[self._name]["b"] = b_val
+        # Propagate to sub-elements regardless of name match
+        if self._a:
+            a_val = self._a.msg(msg)
+            if a_val:
+                return_val[self._name]["a"] = a_val
+        if self._b:
+            b_val = self._b.msg(msg)
+            if b_val:
+                return_val[self._name]["b"] = b_val
         return return_val
 
     def sample(self) -> float:
@@ -1260,10 +1263,11 @@ class Pluck:
                         return_val[self._name]["get_lambda_dc"] = self.get_lambda_dc()
                     elif cmd == "get_stop":
                         return_val[self._name]["get_stop"] = self.get_stop()
-                if self._a:
-                    a_val = self._a.msg(msg)
-                    if a_val:
-                        return_val[self._name]["a"] = a_val
+        # Propagate to sub-element regardless of name match
+        if self._a:
+            a_val = self._a.msg(msg)
+            if a_val:
+                return_val[self._name]["a"] = a_val
         return return_val
 
     def dump(self) -> Dict[str, Any]:
