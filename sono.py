@@ -1434,16 +1434,16 @@ class FixedAttenuate:
         }
 
 
-class Note:
-    """A class to encapsulate a sound element as a musical note.
+class Chord:
+    """A class to encapsulate sound elements as a musical chord.
 
     Attributes:
         a (SoundElementType): The underlying sound element.
-        name (str): Unique identifier for the note.
+        name (str): Unique identifier for the chord.
     """
 
     def __init__(self, note: SoundElementType | None = None, name: str | None = None):
-        """Initialize a Note instance.
+        """Initialize a Chord instance.
 
         Args:
             note (SoundElementType, optional): The sound element to encapsulate.
@@ -1452,7 +1452,7 @@ class Note:
         Raises:
             ValueError: If note does not have a sample() method.
         """
-        self._TYPE = "Note"
+        self._TYPE = "Chord"
         self._a: SoundElementType | None = None
         self._assembly: Dict[Any, Any] = {}
         self._collect: Dict[Any, Any] = {}
@@ -1464,7 +1464,7 @@ class Note:
         """Get the type identifier of the note.
 
         Returns:
-            str: The type string ("Note").
+            str: The type string ("Chord").
         """
         return self._TYPE
 
@@ -1510,11 +1510,11 @@ class Note:
                 MixElements,
                 Pluck,
                 FixedAttenuate,
-                Note,
+                Chord,
             ),
         ):
-            raise ValueError("object assignment to Note has no attribute sample()")
-        if isinstance(note, Note):
+            raise ValueError("object assignment to Chord has no attribute sample()")
+        if isinstance(note, Chord):
             self._a = note.get_note()
         else:
             self._a = note
@@ -1552,9 +1552,19 @@ class Note:
         else:
             actual_type = self._a.get_type() if self._a else "None"
             raise TypeError(
-               f"Note top hierarchy is not type Pluck. Is type {actual_type}"
+               f"Chord top hierarchy is not type Pluck. Is type {actual_type}"
             )
- 
+
+    def set_on(self) -> None:
+        """Activate the underlying sound element."""
+        if self._a:
+            self._a.set_on()
+
+    def set_off(self) -> None:
+        """Deactivate the underlying sound element."""
+        if self._a:
+            self._a.set_off()
+
     def msg(self, msg: Dict[str, Dict[str, List]]) -> Dict[str, Any]:
         """Process control messages to set or get properties.
 
@@ -1564,22 +1574,30 @@ class Note:
         Returns:
             Dict[str, Any]: A dictionary with the results of the commands, including sub-element.
         """
-        return_val: Dict[str, Any] = {self._name: {}}
+        current_name = self._name
+        return_val: Dict[str, Any] = {current_name: {}}
         for name in msg:
-            if name == self._name:
+            if name == current_name:
                 for cmd, val in msg[name].items():
                     if cmd == "get_name":
-                        return_val[self._name]["get_name"] = self.get_name()
+                        return_val[current_name]["get_name"] = self.get_name()
                     elif cmd == "get_type":
-                        return_val[self._name]["get_type"] = self.get_type()
-                if self._a:
-                    a_val = self._a.msg(msg)
-                    if a_val:
-                        return_val[self._name]["a"] = a_val
+                        return_val[current_name]["get_type"] = self.get_type()
+                    elif cmd == "set_name":
+                        self.set_name(val[0])
+                    elif cmd == "set_on":
+                        self.set_on()
+                    elif cmd == "set_off":
+                        self.set_off()
+        # Propagate to sub-element regardless of name match
+        if self._a:
+            a_val = self._a.msg(msg)
+            if a_val:
+                return_val[current_name]["a"] = a_val
         return return_val
 
     def dump(self) -> Dict[str, Any]:
-        """Serialize the note's state for storage or factory use.
+        """Serialize the chord's state for storage or factory use.
 
         Returns:
             Dict[str, Any]: A dictionary containing the note's properties and sub-element.
@@ -1651,8 +1669,8 @@ class Note:
             )
             self._assembly[data["get_name"]] = {"a": data["a"]["get_name"]}
             self.recursive_walk(data["a"])
-        elif get_type == "Note":
-            self._collect[data["get_name"]] = Note(name=data["get_name"])
+        elif get_type == "Chord":
+            self._collect[data["get_name"]] = Chord(name=data["get_name"])
             self._assembly[data["get_name"]] = {"a": data["a"]["get_name"]}
             self.recursive_walk(data["a"])
 
@@ -1671,7 +1689,7 @@ class Note:
         while self._collect:
             if cnt == time_out:
                 raise ValueError(
-                    f"Note factory failed to converge after {cnt} iterations. Check for cyclic dependencies in {self._assembly}"
+                    f"Chord factory failed to converge after {cnt} iterations. Check for cyclic dependencies in {self._assembly}"
                 )
             cnt += 1
             to_delete = []
@@ -1694,7 +1712,7 @@ class Note:
                 del self._collect[key]
         if len(self._done) != 1:
             raise ValueError(
-                f"Note factory failed to converge: {len(self._done)} elements remain"
+                f"Chord factory failed to converge: {len(self._done)} elements remain"
             )
         for k, v in self._done.items():
             self.set_name(k)
@@ -1711,7 +1729,7 @@ class Note:
         chord: Tuple[int, str, str],
         mix: MixType = MixType.SUM,
         pluck: bool = True,
-    ) -> Note:
+    ) -> Chord:
         """Create a note from a chord specification.
 
         Args:
@@ -1725,7 +1743,7 @@ class Note:
             pluck (bool): If True, apply a Pluck effect to the chord (default: True).
 
         Returns:
-            Note: A Note object representing the chord.
+            Chord: A Chord object representing the chord.
 
         Raises:
             ValueError: If the mix type is invalid.
@@ -1858,24 +1876,24 @@ class Note:
         root = populated[0]
         if pluck:
             root = Pluck(a=root)
-        return Note(note=root, name=name)
+        return Chord(note=root, name=name)
 
 
 class Instrument:
     """A class to manage a collection of notes.
 
     Attributes:
-        instr (Dict[str, Note]): Dictionary of notes, keyed by name.
+        instr (Dict[str, Chord]): Dictionary of chords, keyed by name.
         name (str): Unique identifier for the instrument.
     """
 
     def __init__(
-        self, instrument: Dict[str, Note] | None = None, name: str | None = None
+        self, instrument: Dict[str, Chord] | None = None, name: str | None = None
     ):
         """Initialize an Instrument instance.
 
         Args:
-            instrument (Dict[str, Note], optional): Initial dictionary of notes.
+            instrument (Dict[str, Chord], optional): Initial dictionary of chords.
             name (str, optional): Unique identifier for the instrument.
         """
         self._TYPE = "Instrument"
@@ -1903,7 +1921,7 @@ class Instrument:
         if not isinstance(
             note,
             (
-                Note,
+                Chord,
                 SoundElement,
                 SumElements,
                 MultiplyElements,
@@ -1912,7 +1930,7 @@ class Instrument:
                 FixedAttenuate,
             ),
         ):
-            raise ValueError("object assignment as Note has no attribute sample()")
+            raise ValueError("object assignment as Chord has no attribute sample()")
         key = name or note.get_name()
         self._instr[key] = note
 
@@ -1946,19 +1964,19 @@ class Instrument:
     def make_from_chords(
         self,
         chords_lst: List[Tuple[int, str, str]],
-        mix: Note.MixType = Note.MixType.SUM,
+        mix: Chord.MixType = Chord.MixType.SUM,
         pluck: bool = True,
     ) -> None:
         """Create and add notes from a list of chord specifications.
 
         Args:
             chords_lst (List[Tuple[int, str, str]]): List of (octave, note, chord_type) tuples.
-            mix (Note.MixType): The mixing method for chords (default: Note.MixType.SUM).
+            mix (Chord.MixType): The mixing method for chords (default: Chord.MixType.SUM).
             pluck (bool): If True, apply a Pluck effect to chords (default: True).
         """
-        note_instance = Note()
+        chord_instance = Chord()
         for chord in chords_lst:
-            chord_note = note_instance.make_a_chord(chord, mix, pluck)
+            chord_note = chord_instance.make_a_chord(chord, mix, pluck)
             self.add_note(chord_note)
 
     def msg(self, msg: Dict[str, Dict[str, List]]) -> Dict[str, Any]:
@@ -2018,12 +2036,12 @@ class Instrument:
         for k, v in instr_dump.items():
             if k in ("get_name", "get_type"):
                 continue
-            if v["get_type"] == "Note":
-                f = Note()
+            if v["get_type"] == "Chord":
+                f = Chord()
                 f.note_factory_hier_db(v)
                 if not force and k in self._instr:
                     raise ValueError(
-                        f"instrument_factory Note collision for '{k}', use force to replace"
+                        f"instrument_factory Chord collision for '{k}', use force to replace"
                     )
                 results[k] = f
         self._instr.update(results)
@@ -2432,7 +2450,7 @@ class Sequencer:
             - "instruments": list of associated Instrument instances
         name (str): Unique identifier for the sequencer.
         time (int): Current time in samples.
-        active_notes (Dict[str, Tuple[Note, int]]): Active notes with their end times.
+        active_notes (Dict[str, Tuple[Chord, int]]): Active chords with their end times.
         next_event_time (int): Time of the next event to process.
         event_pointers (Dict[str, int]): Event pointers for each event list.
     """
@@ -2456,7 +2474,7 @@ class Sequencer:
         self._event_q: Dict[str, List[int]] = {}
         self._name = name or f"{self._TYPE}_{id(self)}"
         self._time: int = 0
-        self._active_notes: Dict[str, Tuple[Note, int]] = {}
+        self._active_notes: Dict[str, Tuple[Chord, int]] = {}
         self._next_event_time: int = 0
         self._event_pointers: Dict[str, int] = {k: 0 for k in self._channels}
         self._start: bool = True
