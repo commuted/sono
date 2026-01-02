@@ -483,7 +483,6 @@ class Sequencer:
         active_chords (Dict[str, Dict[str, Tuple[Chord, int]]]): Channel-based active chords.
             Outer key is channel name, inner dict maps chord name to (Chord, end_time).
         next_event_time (int): Time of the next event to process.
-        event_pointers (Dict[str, int]): Event pointers for each channel.
     """
 
     def __init__(
@@ -505,29 +504,29 @@ class Sequencer:
         self._event_q: Dict[str, List[int]] = {}
         self._name = name or f"{self._TYPE}_{id(self)}"
         self._time: int = 0
-        self._active_chords: Dict[str, Dict[str, Tuple[Chord, int]]] = {}
+        self._active_chords: Dict[str, Dict[str, Tuple[Chord, int]]] = {
+            k: {} for k in self._channels
+        }
         self._next_event_time: int = 0
-        self._event_pointers: Dict[str, int] = {k: 0 for k in self._channels}
         self.init()
 
     def add_channel(
         self,
         name: str,
-        event_list: Channel,
+        channel: Channel,
         instruments: List[Instrument] | None = None,
     ) -> None:
         """Add a channel to the sequencer.
 
         Args:
-            name (str): The channel name (typically the Channel name).
-            event_list (Channel): The channel instance for this channel.
+            name (str): The channel name.
+            channel (Channel): The Channel instance containing events.
             instruments (List[Instrument], optional): List of instruments for this channel.
         """
         self._channels[name] = {
-            "event_list": event_list,
+            "event_list": channel,
             "instruments": instruments or [],
         }
-        self._event_pointers[name] = 0
         self._active_chords[name] = {}
         self.generate_event_queue()
 
@@ -578,8 +577,8 @@ class Sequencer:
         """
         if name in self._channels:
             del self._channels[name]
-            if name in self._event_pointers:
-                del self._event_pointers[name]
+            if name in self._active_chords:
+                del self._active_chords[name]
             self.generate_event_queue()
         else:
             raise ValueError(f"{name} channel not found in _channels")
@@ -587,19 +586,18 @@ class Sequencer:
     def generate_event_queue(self) -> None:
         """Generate the event queue from all channels."""
         self._event_q = {}
-        for key, channel in self._channels.items():
-            event_list = channel["event_list"]
-            self._event_q[key] = []
-            f = True
-            n = -1
-            while f:
-                r = event_list.next_event(n)
-                if isinstance(r, int):
-                    self._event_q[key].append(r)
-                    n = r + 1
+        for channel_name, channel_data in self._channels.items():
+            event_list = channel_data["event_list"]
+            self._event_q[channel_name] = []
+            searching = True
+            search_from = -1
+            while searching:
+                next_time = event_list.next_event(search_from)
+                if isinstance(next_time, int):
+                    self._event_q[channel_name].append(next_time)
+                    search_from = next_time + 1
                 else:
-                    f = False
-        print(self._event_q)
+                    searching = False
 
     def add_instrument_to_channel(self, channel_name: str, instrument: Instrument) -> None:
         """Add an instrument to an existing channel.
@@ -614,9 +612,8 @@ class Sequencer:
             raise ValueError(f"{channel_name} channel not found in _channels")
 
     def init(self) -> None:
-        self.generate_event_queue()
         """Initialize or reset the sequencer state."""
-        pass
+        self.generate_event_queue()
 
     def sample(self) -> List[Tuple[str, float]]:
         """Generate the next audio sample by polling each channel's active chords.
@@ -718,3 +715,101 @@ class Sequencer:
             result.append((channel_name, channel_sample))
 
         return result
+
+    def get_name(self) -> str:
+        """Get the unique identifier of the sequencer.
+
+        Returns:
+            str: The sequencer's name.
+        """
+        return self._name
+
+    def set_name(self, name: str) -> None:
+        """Set the unique identifier of the sequencer.
+
+        Args:
+            name (str): The new name.
+        """
+        self._name = name
+
+    def get_type(self) -> str:
+        """Get the type identifier of the sequencer.
+
+        Returns:
+            str: The type string ("Sequencer").
+        """
+        return self._TYPE
+
+    def get_time(self) -> int:
+        """Get the current time in samples.
+
+        Returns:
+            int: The current time.
+        """
+        return self._time
+
+    def set_time(self, time: int) -> None:
+        """Set the current time in samples.
+
+        Args:
+            time (int): The new time value.
+
+        Raises:
+            ValueError: If time is negative.
+        """
+        if time < 0:
+            raise ValueError("Time must be non-negative")
+        self._time = time
+
+    def msg(self, msg: Dict[str, Dict[str, List]]) -> Dict[str, Any]:
+        """Process control messages to set or get properties.
+
+        Args:
+            msg (Dict[str, Dict[str, List]]): A dictionary of commands for this
+                sequencer and/or its contained channels.
+
+        Returns:
+            Dict[str, Any]: A dictionary with the results of the commands.
+        """
+        current_name = self._name
+        return_val: Dict[str, Any] = {current_name: {}}
+        for name in msg:
+            if name == current_name:
+                for cmd, val in msg[name].items():
+                    if cmd == "get_name":
+                        return_val[current_name]["get_name"] = self.get_name()
+                    elif cmd == "set_name":
+                        self.set_name(val[0])
+                    elif cmd == "get_type":
+                        return_val[current_name]["get_type"] = self.get_type()
+                    elif cmd == "get_time":
+                        return_val[current_name]["get_time"] = self.get_time()
+                    elif cmd == "set_time":
+                        self.set_time(val[0])
+                # Route messages to underlying channels
+                for channel_name, channel_data in self._channels.items():
+                    channel = channel_data["event_list"]
+                    channel_val = channel.msg(msg)
+                    if channel_val:
+                        return_val[current_name][channel_name] = channel_val
+        return return_val
+
+    def dump(self) -> Dict[str, Any]:
+        """Serialize the sequencer's state for storage.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing the sequencer's properties
+                and all contained channels.
+        """
+        channels_dump = {}
+        for channel_name, channel_data in self._channels.items():
+            channels_dump[channel_name] = {
+                "event_list": channel_data["event_list"].dump(),
+                "instruments": [instr.dump() for instr in channel_data["instruments"]],
+            }
+        return {
+            "get_type": self.get_type(),
+            "get_name": self.get_name(),
+            "get_time": self.get_time(),
+            "channels": channels_dump,
+        }

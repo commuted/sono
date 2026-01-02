@@ -1050,14 +1050,14 @@ class TestSequencerAddChannel(unittest.TestCase):
         instruments = seq._channels["ch1"]["instruments"]
         self.assertEqual(instruments, [])
 
-    def test_add_channel_initializes_event_pointer(self):
-        """Check that add_channel initializes _event_pointers for channel."""
+    def test_add_channel_initializes_active_chords(self):
+        """Check that add_channel initializes _active_chords for channel."""
         seq = sl.Sequencer(name="test_seq")
         channel = sl.Channel(name="ch1")
         seq.add_channel("ch1", channel)
 
-        self.assertIn("ch1", seq._event_pointers)
-        self.assertEqual(seq._event_pointers["ch1"], 0)
+        self.assertIn("ch1", seq._active_chords)
+        self.assertEqual(seq._active_chords["ch1"], {})
 
     def test_add_channel_generates_event_queue(self):
         """Check that add_channel generates _event_q correctly."""
@@ -1154,7 +1154,7 @@ class TestSequencerAddChannel(unittest.TestCase):
             list(seq1._channels["ch1"].keys()),
             list(seq2._channels["ch2"].keys())
         )
-        self.assertEqual(seq1._event_pointers["ch1"], seq2._event_pointers["ch2"])
+        self.assertEqual(seq1._active_chords["ch1"], seq2._active_chords["ch2"])
         self.assertEqual(seq1._event_q["ch1"], seq2._event_q["ch2"])
 
     def test_add_channel_empty_channel(self):
@@ -1191,6 +1191,474 @@ class TestSequencerAddChannel(unittest.TestCase):
         seq.add_channel("ch1", channel, None)
 
         self.assertEqual(seq._channels["ch1"]["instruments"], [])
+
+
+class TestSequencerDefaults(unittest.TestCase):
+    """Tests for Sequencer default values after instantiation."""
+
+    def test_default_type(self):
+        """Check that default _TYPE is 'Sequencer'."""
+        seq = sl.Sequencer()
+        self.assertEqual(seq.get_type(), "Sequencer")
+
+    def test_default_name_format(self):
+        """Check that default name starts with 'Sequencer_'."""
+        seq = sl.Sequencer()
+        self.assertTrue(seq.get_name().startswith("Sequencer_"))
+
+    def test_default_name_is_unique(self):
+        """Check that each instance gets a unique name."""
+        seq1 = sl.Sequencer()
+        seq2 = sl.Sequencer()
+        self.assertNotEqual(seq1.get_name(), seq2.get_name())
+
+    def test_default_channels_is_empty(self):
+        """Check that default channels dict is empty."""
+        seq = sl.Sequencer()
+        self.assertEqual(seq._channels, {})
+
+    def test_default_time_is_zero(self):
+        """Check that default time is 0."""
+        seq = sl.Sequencer()
+        self.assertEqual(seq.get_time(), 0)
+
+    def test_default_active_chords_is_empty(self):
+        """Check that default active_chords is empty."""
+        seq = sl.Sequencer()
+        self.assertEqual(seq._active_chords, {})
+
+    def test_default_event_q_is_empty(self):
+        """Check that default event queue is empty."""
+        seq = sl.Sequencer()
+        self.assertEqual(seq._event_q, {})
+
+
+class TestSequencerCustomArgs(unittest.TestCase):
+    """Tests for Sequencer with custom constructor arguments."""
+
+    def test_custom_name(self):
+        """Check that custom name is set correctly."""
+        seq = sl.Sequencer(name="my_sequencer")
+        self.assertEqual(seq.get_name(), "my_sequencer")
+
+    def test_custom_channels(self):
+        """Check that custom channels are set correctly."""
+        channel = sl.Channel(name="ch1")
+        seq = sl.Sequencer(
+            channels={"ch1": {"event_list": channel, "instruments": []}},
+            name="test_seq"
+        )
+        self.assertIn("ch1", seq._channels)
+
+    def test_channels_active_chords_initialized(self):
+        """Check that _active_chords is initialized for passed channels."""
+        channel = sl.Channel(name="ch1")
+        seq = sl.Sequencer(
+            channels={"ch1": {"event_list": channel, "instruments": []}}
+        )
+        self.assertIn("ch1", seq._active_chords)
+        self.assertEqual(seq._active_chords["ch1"], {})
+
+
+class TestSequencerGetters(unittest.TestCase):
+    """Tests for Sequencer getter methods."""
+
+    def test_get_channel_returns_channel_data(self):
+        """Check that get_channel returns correct data."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        instr = sl.Instrument(name="piano")
+        seq.add_channel("ch1", channel, [instr])
+
+        result = seq.get_channel("ch1")
+        self.assertIn("event_list", result)
+        self.assertIn("instruments", result)
+
+    def test_get_channel_not_found_raises_error(self):
+        """Check that get_channel raises ValueError for unknown channel."""
+        seq = sl.Sequencer(name="test_seq")
+        with self.assertRaises(ValueError):
+            seq.get_channel("unknown")
+
+    def test_get_event_list_returns_channel(self):
+        """Check that get_event_list returns Channel instance."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        result = seq.get_event_list("ch1")
+        self.assertIs(result, channel)
+
+    def test_get_event_list_not_found_raises_error(self):
+        """Check that get_event_list raises ValueError for unknown channel."""
+        seq = sl.Sequencer(name="test_seq")
+        with self.assertRaises(ValueError):
+            seq.get_event_list("unknown")
+
+    def test_get_instruments_returns_list(self):
+        """Check that get_instruments returns instrument list."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        instr = sl.Instrument(name="piano")
+        seq.add_channel("ch1", channel, [instr])
+
+        result = seq.get_instruments("ch1")
+        self.assertEqual(len(result), 1)
+        self.assertIs(result[0], instr)
+
+    def test_get_instruments_not_found_raises_error(self):
+        """Check that get_instruments raises ValueError for unknown channel."""
+        seq = sl.Sequencer(name="test_seq")
+        with self.assertRaises(ValueError):
+            seq.get_instruments("unknown")
+
+
+class TestSequencerRemoveChannel(unittest.TestCase):
+    """Tests for Sequencer remove_channel method."""
+
+    def test_remove_channel_removes_from_channels(self):
+        """Check that remove_channel removes from _channels."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+        seq.remove_channel("ch1")
+
+        self.assertNotIn("ch1", seq._channels)
+
+    def test_remove_channel_removes_from_active_chords(self):
+        """Check that remove_channel removes from _active_chords."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+        seq.remove_channel("ch1")
+
+        self.assertNotIn("ch1", seq._active_chords)
+
+    def test_remove_channel_updates_event_queue(self):
+        """Check that remove_channel updates _event_q."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        channel.add_event(sl.Event(ptime=100))
+        seq.add_channel("ch1", channel)
+        seq.remove_channel("ch1")
+
+        self.assertNotIn("ch1", seq._event_q)
+
+    def test_remove_channel_not_found_raises_error(self):
+        """Check that remove_channel raises ValueError for unknown channel."""
+        seq = sl.Sequencer(name="test_seq")
+        with self.assertRaises(ValueError):
+            seq.remove_channel("unknown")
+
+
+class TestSequencerAddInstrumentToChannel(unittest.TestCase):
+    """Tests for Sequencer add_instrument_to_channel method."""
+
+    def test_add_instrument_to_channel(self):
+        """Check that add_instrument_to_channel adds instrument."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        instr = sl.Instrument(name="piano")
+        seq.add_instrument_to_channel("ch1", instr)
+
+        self.assertEqual(len(seq.get_instruments("ch1")), 1)
+        self.assertIs(seq.get_instruments("ch1")[0], instr)
+
+    def test_add_multiple_instruments(self):
+        """Check that multiple instruments can be added."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        instr1 = sl.Instrument(name="piano")
+        instr2 = sl.Instrument(name="guitar")
+        seq.add_instrument_to_channel("ch1", instr1)
+        seq.add_instrument_to_channel("ch1", instr2)
+
+        self.assertEqual(len(seq.get_instruments("ch1")), 2)
+
+    def test_add_instrument_to_unknown_channel_raises_error(self):
+        """Check that add_instrument_to_channel raises ValueError for unknown channel."""
+        seq = sl.Sequencer(name="test_seq")
+        instr = sl.Instrument(name="piano")
+        with self.assertRaises(ValueError):
+            seq.add_instrument_to_channel("unknown", instr)
+
+
+class TestSequencerSetters(unittest.TestCase):
+    """Tests for Sequencer setter methods."""
+
+    def test_set_name(self):
+        """Check that set_name updates the name."""
+        seq = sl.Sequencer(name="old_name")
+        seq.set_name("new_name")
+        self.assertEqual(seq.get_name(), "new_name")
+
+    def test_set_time(self):
+        """Check that set_time updates the time."""
+        seq = sl.Sequencer(name="test_seq")
+        seq.set_time(100)
+        self.assertEqual(seq.get_time(), 100)
+
+    def test_set_time_zero_is_valid(self):
+        """Check that set_time accepts zero."""
+        seq = sl.Sequencer(name="test_seq")
+        seq.set_time(0)
+        self.assertEqual(seq.get_time(), 0)
+
+    def test_set_time_negative_raises_error(self):
+        """Check that set_time with negative value raises ValueError."""
+        seq = sl.Sequencer(name="test_seq")
+        with self.assertRaises(ValueError):
+            seq.set_time(-1)
+
+
+class TestSequencerSample(unittest.TestCase):
+    """Tests for Sequencer sample method."""
+
+    def test_sample_returns_list_of_tuples(self):
+        """Check that sample returns list of (channel_name, float) tuples."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        result = seq.sample()
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], "ch1")
+        self.assertIsInstance(result[0][1], float)
+
+    def test_sample_increments_time(self):
+        """Check that sample increments _time."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        self.assertEqual(seq.get_time(), 0)
+        seq.sample()
+        self.assertEqual(seq.get_time(), 1)
+        seq.sample()
+        self.assertEqual(seq.get_time(), 2)
+
+    def test_sample_empty_channel_returns_zero(self):
+        """Check that sample returns 0.0 for empty channel."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        result = seq.sample()
+        self.assertEqual(result[0][1], 0.0)
+
+    def test_sample_multiple_channels(self):
+        """Check that sample returns entry for each channel."""
+        seq = sl.Sequencer(name="test_seq")
+        channel1 = sl.Channel(name="ch1")
+        channel2 = sl.Channel(name="ch2")
+        seq.add_channel("ch1", channel1)
+        seq.add_channel("ch2", channel2)
+
+        result = seq.sample()
+        self.assertEqual(len(result), 2)
+        names = [r[0] for r in result]
+        self.assertIn("ch1", names)
+        self.assertIn("ch2", names)
+
+
+class TestSequencerProcessEvents(unittest.TestCase):
+    """Tests for Sequencer process_events method."""
+
+    def test_process_events_returns_list_of_tuples(self):
+        """Check that process_events returns list of tuples."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        result = seq.process_events()
+        self.assertIsInstance(result, list)
+
+    def test_process_events_adds_chord_to_active_chords(self):
+        """Check that process_events adds AmChord to active_chords."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+
+        chord = sl.Chord(name="test_chord")
+        chord.make_a_chord((4, "C", "major"))
+
+        event = sl.Event(ptime=0, name="e1")
+        event.add_event(sl.Event.AmChord("instr", chord, "add", 100))
+        channel.add_event(event)
+
+        seq.add_channel("ch1", channel)
+        seq.process_events()
+
+        self.assertIn("test_chord", seq._active_chords["ch1"])
+
+
+class TestSequencerMsg(unittest.TestCase):
+    """Tests for Sequencer msg method."""
+
+    def test_msg_get_name(self):
+        """Check that msg can get name."""
+        seq = sl.Sequencer(name="test_seq")
+        result = seq.msg({"test_seq": {"get_name": []}})
+        self.assertEqual(result["test_seq"]["get_name"], "test_seq")
+
+    def test_msg_set_name(self):
+        """Check that msg can set name."""
+        seq = sl.Sequencer(name="old_name")
+        seq.msg({"old_name": {"set_name": ["new_name"]}})
+        self.assertEqual(seq.get_name(), "new_name")
+
+    def test_msg_get_type(self):
+        """Check that msg can get type."""
+        seq = sl.Sequencer(name="test_seq")
+        result = seq.msg({"test_seq": {"get_type": []}})
+        self.assertEqual(result["test_seq"]["get_type"], "Sequencer")
+
+    def test_msg_get_time(self):
+        """Check that msg can get time."""
+        seq = sl.Sequencer(name="test_seq")
+        result = seq.msg({"test_seq": {"get_time": []}})
+        self.assertEqual(result["test_seq"]["get_time"], 0)
+
+    def test_msg_set_time(self):
+        """Check that msg can set time."""
+        seq = sl.Sequencer(name="test_seq")
+        seq.msg({"test_seq": {"set_time": [100]}})
+        self.assertEqual(seq.get_time(), 100)
+
+    def test_msg_ignores_other_names(self):
+        """Check that msg ignores messages for other names."""
+        seq = sl.Sequencer(name="test_seq")
+        seq.msg({"other_name": {"set_name": ["new_name"]}})
+        self.assertEqual(seq.get_name(), "test_seq")
+
+    def test_msg_multiple_commands(self):
+        """Check that msg can handle multiple commands."""
+        seq = sl.Sequencer(name="test_seq")
+        result = seq.msg({
+            "test_seq": {
+                "get_type": [],
+                "get_name": [],
+                "get_time": []
+            }
+        })
+        self.assertEqual(result["test_seq"]["get_type"], "Sequencer")
+        self.assertEqual(result["test_seq"]["get_name"], "test_seq")
+        self.assertEqual(result["test_seq"]["get_time"], 0)
+
+    def test_msg_set_name_uses_current_name_for_return(self):
+        """Check that msg uses current name for return value after set_name."""
+        seq = sl.Sequencer(name="old_name")
+        result = seq.msg({"old_name": {"set_name": ["new_name"], "get_type": []}})
+        self.assertIn("old_name", result)
+
+    def test_msg_routes_to_channels(self):
+        """Check that msg routes messages to contained channels."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        result = seq.msg({
+            "test_seq": {"get_name": []},
+            "ch1": {"get_type": []}
+        })
+        self.assertIn("ch1", result["test_seq"])
+
+
+class TestSequencerDump(unittest.TestCase):
+    """Tests for Sequencer dump method."""
+
+    def test_dump_contains_required_keys(self):
+        """Check that dump contains all required keys."""
+        seq = sl.Sequencer(name="test_seq")
+        dump = seq.dump()
+
+        self.assertIn("get_type", dump)
+        self.assertIn("get_name", dump)
+        self.assertIn("get_time", dump)
+        self.assertIn("channels", dump)
+
+    def test_dump_values_match_getters(self):
+        """Check that dump values match getter methods."""
+        seq = sl.Sequencer(name="test_seq")
+        dump = seq.dump()
+
+        self.assertEqual(dump["get_type"], "Sequencer")
+        self.assertEqual(dump["get_name"], "test_seq")
+        self.assertEqual(dump["get_time"], 0)
+        self.assertEqual(dump["channels"], {})
+
+    def test_dump_includes_channels(self):
+        """Check that dump includes channel data."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        channel.add_event(sl.Event(ptime=100, name="e1"))
+        seq.add_channel("ch1", channel)
+
+        dump = seq.dump()
+        self.assertIn("ch1", dump["channels"])
+        self.assertIn("event_list", dump["channels"]["ch1"])
+        self.assertIn("instruments", dump["channels"]["ch1"])
+
+    def test_dump_includes_instruments(self):
+        """Check that dump includes instrument data."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        instr = sl.Instrument(name="piano")
+        seq.add_channel("ch1", channel, [instr])
+
+        dump = seq.dump()
+        self.assertEqual(len(dump["channels"]["ch1"]["instruments"]), 1)
+
+    def test_dump_after_time_change(self):
+        """Check that dump reflects time changes."""
+        seq = sl.Sequencer(name="test_seq")
+        seq.set_time(500)
+        dump = seq.dump()
+
+        self.assertEqual(dump["get_time"], 500)
+
+
+class TestSequencerGenerateEventQueue(unittest.TestCase):
+    """Tests for Sequencer generate_event_queue method."""
+
+    def test_generate_event_queue_creates_queue(self):
+        """Check that generate_event_queue creates event queue."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        channel.add_event(sl.Event(ptime=100))
+        channel.add_event(sl.Event(ptime=200))
+        seq.add_channel("ch1", channel)
+
+        self.assertEqual(seq._event_q["ch1"], [100, 200])
+
+    def test_generate_event_queue_empty_channel(self):
+        """Check that generate_event_queue handles empty channel."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        self.assertEqual(seq._event_q["ch1"], [])
+
+    def test_generate_event_queue_multiple_channels(self):
+        """Check that generate_event_queue handles multiple channels."""
+        seq = sl.Sequencer(name="test_seq")
+
+        channel1 = sl.Channel(name="ch1")
+        channel1.add_event(sl.Event(ptime=100))
+
+        channel2 = sl.Channel(name="ch2")
+        channel2.add_event(sl.Event(ptime=200))
+        channel2.add_event(sl.Event(ptime=300))
+
+        seq.add_channel("ch1", channel1)
+        seq.add_channel("ch2", channel2)
+
+        self.assertEqual(seq._event_q["ch1"], [100])
+        self.assertEqual(seq._event_q["ch2"], [200, 300])
 
 
 if __name__ == "__main__":
