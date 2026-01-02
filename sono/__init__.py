@@ -51,6 +51,11 @@ from .sequencer import (
     Sequencer,
 )
 
+# Utilities
+from .util import (
+    Util,
+)
+
 __all__ = [
     # Elements
     "SoundElement",
@@ -67,6 +72,8 @@ __all__ = [
     "Event",
     "Channel",
     "Sequencer",
+    # Utilities
+    "Util",
 ]
 
 __version__ = "0.1.0"

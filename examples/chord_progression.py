@@ -40,6 +40,8 @@ def create_chord_progression():
     for chord_spec in progression:
         chord = sl.Chord()
         chord = chord.make_a_chord(chord_spec, pluck=True)
+        # Fix pop by spreading phases and adjusting for zero start
+        sl.Util.fix_pop(chord)
         chords.append(chord)
 
     return chords

@@ -161,6 +161,8 @@ class SoundElement:
                 for cmd, val in msg[name].items():
                     if cmd == "set_phase":
                         self.set_phase(val[0])
+                    elif cmd == "set_init_phase":
+                        self.set_init_phase(val[0])
                     elif cmd == "get_phase":
                         return_val[self._name]["get_phase"] = self.get_phase()
                     elif cmd == "get_type":
@@ -282,6 +284,15 @@ class SoundElement:
         Args:
             phase (float): The phase in radians.
         """
+        self._phase = phase
+
+    def set_init_phase(self, phase: float) -> None:
+        """Set the initial phase of the wave (used by set_on).
+
+        Args:
+            phase (float): The phase in radians.
+        """
+        self._init_phase = phase
         self._phase = phase
 
     def get_phase(self) -> float:
