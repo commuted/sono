@@ -398,7 +398,8 @@ class Chord:
             "sus2": {0, 2, 7},
         }
         populated: List[SoundElementType] = []
-        base_midi = chord[0] * 12 + note_map.get(chord[1], 0)
+        # Standard MIDI: C4 (middle C) = 60, so octave N maps to (N+1)*12
+        base_midi = (chord[0] + 1) * 12 + note_map.get(chord[1], 0)
         chord_type = chord[2]
         slash_bass = None
         omit_intervals: set[int] = set()
@@ -453,7 +454,7 @@ class Chord:
         if slash_bass is not None:
             bass_offset = note_map[slash_bass]
             # Place bass note one octave below the chord root
-            bass_midi = (chord[0] - 1) * 12 + bass_offset
+            bass_midi = chord[0] * 12 + bass_offset
             bass_elem = SoundElement()
             bass_elem.set_frequency_to_midi_note(bass_midi)
             # Insert bass at the beginning so it's the lowest voice
