@@ -480,8 +480,8 @@ class Sequencer:
             - "instruments": list of associated Instrument instances
         name (str): Unique identifier for the sequencer.
         time (int): Current time in samples.
-        active_chords (Dict[str, Dict[str, Tuple[Chord, int]]]): Channel-based active chords.
-            Outer key is channel name, inner dict maps chord name to (Chord, end_time).
+        active_channel (Dict[str, Tuple[Chord, int] | None]): Active chord per channel.
+            Maps channel name to (Chord, end_time) or None if no active chord.
         next_event_time (int): Time of the next event to process.
     """
 
@@ -504,8 +504,8 @@ class Sequencer:
         self._event_q: Dict[str, List[int]] = {}
         self._name = name or f"{self._TYPE}_{id(self)}"
         self._time: int = 0
-        self._active_chords: Dict[str, Dict[str, Tuple[Chord, int]]] = {
-            k: {} for k in self._channels
+        self._active_channel: Dict[str, Tuple[Chord, int] | None] = {
+            k: None for k in self._channels
         }
         self._next_event_time: int = 0
         self.init()
@@ -527,7 +527,7 @@ class Sequencer:
             "event_list": channel,
             "instruments": instruments or [],
         }
-        self._active_chords[name] = {}
+        self._active_channel[name] = None
         self.generate_event_queue()
 
     def get_channel(self, name: str) -> Dict[str, Channel | List[Instrument]]:
@@ -577,8 +577,8 @@ class Sequencer:
         """
         if name in self._channels:
             del self._channels[name]
-            if name in self._active_chords:
-                del self._active_chords[name]
+            if name in self._active_channel:
+                del self._active_channel[name]
             self.generate_event_queue()
         else:
             raise ValueError(f"{name} channel not found in _channels")
@@ -615,13 +615,22 @@ class Sequencer:
         """Initialize or reset the sequencer state."""
         self.generate_event_queue()
 
-    def sample(self) -> List[Tuple[str, float]]:
-        """Generate the next audio sample by polling each channel's active chords.
+    def sample(self) -> List[Dict[str, Any]]:
+        """Generate the next audio sample by polling each channel's active chord.
+
+        Also collects any lyrics and messages that occur at the current ptime.
 
         Returns:
-            List[Tuple[str, float]]: List of (channel_name, sample_value) tuples,
-                one entry per channel.
+            List[Dict[str, Any]]: List of dicts, one per channel, containing:
+                - "channel": channel name
+                - "sample": float sample value from active chord
+                - "lyrics": list of lyric strings at current ptime
+                - "messages": list of message dicts at current ptime
         """
+        # Collect lyrics and messages for each channel at current ptime
+        channel_lyrics: Dict[str, List[str]] = {name: [] for name in self._channels}
+        channel_messages: Dict[str, List[Dict[str, Any]]] = {name: [] for name in self._channels}
+
         # Check if we need to process events at current time
         if self._time == self._next_event_time:
             scheduled_events: Dict[str, int] = {}
@@ -633,6 +642,15 @@ class Sequencer:
                 if event_time is not None and event_time == self._time:
                     scheduled_events[name] = event_time
 
+                    # Collect lyrics and messages at this ptime
+                    events = event_list.get_events(self._time)
+                    for event in events:
+                        event_item = event.get_event()
+                        if isinstance(event_item, Event.AmLyric):
+                            channel_lyrics[name].append(event_item._text)
+                        elif isinstance(event_item, Event.AmMSG):
+                            channel_messages[name].append(event_item._msg)
+
                 next_time = event_list.next_event(self._time + 1)
                 if next_time is not None:
                     next_times.append(next_time)
@@ -643,44 +661,40 @@ class Sequencer:
             if next_times:
                 self._next_event_time = min(next_times)
 
-        # Poll each channel's active chords and generate samples
-        result: List[Tuple[str, float]] = []
+        # Poll each channel's active chord and generate samples
+        result: List[Dict[str, Any]] = []
         for channel_name in self._channels:
             channel_sample = 0.0
-            chords_to_remove: List[str] = []
 
-            # Sum samples from all active chords in this channel
-            if channel_name in self._active_chords:
-                for chord_name, (chord, end_time) in self._active_chords[channel_name].items():
+            # Get sample from active chord if present and not expired
+            if channel_name in self._active_channel:
+                active = self._active_channel[channel_name]
+                if active is not None:
+                    chord, end_time = active
                     if self._time < end_time:
-                        channel_sample += chord.sample()
+                        channel_sample = chord.sample()
                     else:
-                        chords_to_remove.append(chord_name)
+                        # Chord expired, clear it
+                        self._active_channel[channel_name] = None
 
-                # Remove expired chords
-                for chord_name in chords_to_remove:
-                    del self._active_chords[channel_name][chord_name]
-
-            result.append((channel_name, channel_sample))
+            result.append({
+                "channel": channel_name,
+                "sample": channel_sample,
+                "lyrics": channel_lyrics[channel_name],
+                "messages": channel_messages[channel_name],
+            })
 
         self._time += 1
         return result
 
-    def process_events(self) -> List[Tuple[str, float]]:
-        """Process events at the current time, updating active chords.
+    def process_events(self) -> None:
+        """Process events at the current time, updating active chord per channel.
 
-        Returns:
-            List[Tuple[str, float]]: List of (channel_name, sample_value) tuples.
+        With one chord per channel, this method updates _active_channel directly.
         """
-        result: List[Tuple[str, float]] = []
-
         for channel_name, channel in self._channels.items():
             event_list = channel["event_list"]
             events = event_list.get_events(self._time)
-
-            # Initialize channel's active chords dict if needed
-            if channel_name not in self._active_chords:
-                self._active_chords[channel_name] = {}
 
             for event in events:
                 event_item = event.get_event()
@@ -688,33 +702,25 @@ class Sequencer:
                     chord = event_item._chord
                     action = event_item._action
                     duration = event_item._duration
-                    chord_name = chord.get_name()
 
                     if action in ("add", "add_pluck"):
-                        # Add chord to active chords with end time
+                        # Set this chord as the active chord for the channel
                         end_time = self._time + duration
-                        self._active_chords[channel_name][chord_name] = (chord, end_time)
+                        self._active_channel[channel_name] = (chord, end_time)
                         chord.set_on()
                         if action == "add_pluck":
                             chord.sample_pluck()
                     elif action == "pluck":
                         # Pluck existing chord if present
-                        if chord_name in self._active_chords[channel_name]:
-                            self._active_chords[channel_name][chord_name][0].sample_pluck()
+                        active = self._active_channel.get(channel_name)
+                        if active is not None:
+                            active[0].sample_pluck()
                     elif action == "rm":
-                        # Remove chord from active chords
-                        if chord_name in self._active_chords[channel_name]:
-                            self._active_chords[channel_name][chord_name][0].set_off()
-                            del self._active_chords[channel_name][chord_name]
-
-            # Generate sample for this channel
-            channel_sample = 0.0
-            for chord_name, (chord, end_time) in self._active_chords[channel_name].items():
-                channel_sample += chord.sample()
-
-            result.append((channel_name, channel_sample))
-
-        return result
+                        # Remove chord from active channel
+                        active = self._active_channel.get(channel_name)
+                        if active is not None:
+                            active[0].set_off()
+                            self._active_channel[channel_name] = None
 
     def get_name(self) -> str:
         """Get the unique identifier of the sequencer.

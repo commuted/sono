@@ -1050,14 +1050,14 @@ class TestSequencerAddChannel(unittest.TestCase):
         instruments = seq._channels["ch1"]["instruments"]
         self.assertEqual(instruments, [])
 
-    def test_add_channel_initializes_active_chords(self):
-        """Check that add_channel initializes _active_chords for channel."""
+    def test_add_channel_initializes_active_channel(self):
+        """Check that add_channel initializes _active_channel for channel."""
         seq = sl.Sequencer(name="test_seq")
         channel = sl.Channel(name="ch1")
         seq.add_channel("ch1", channel)
 
-        self.assertIn("ch1", seq._active_chords)
-        self.assertEqual(seq._active_chords["ch1"], {})
+        self.assertIn("ch1", seq._active_channel)
+        self.assertIsNone(seq._active_channel["ch1"])
 
     def test_add_channel_generates_event_queue(self):
         """Check that add_channel generates _event_q correctly."""
@@ -1154,7 +1154,7 @@ class TestSequencerAddChannel(unittest.TestCase):
             list(seq1._channels["ch1"].keys()),
             list(seq2._channels["ch2"].keys())
         )
-        self.assertEqual(seq1._active_chords["ch1"], seq2._active_chords["ch2"])
+        self.assertEqual(seq1._active_channel["ch1"], seq2._active_channel["ch2"])
         self.assertEqual(seq1._event_q["ch1"], seq2._event_q["ch2"])
 
     def test_add_channel_empty_channel(self):
@@ -1222,10 +1222,10 @@ class TestSequencerDefaults(unittest.TestCase):
         seq = sl.Sequencer()
         self.assertEqual(seq.get_time(), 0)
 
-    def test_default_active_chords_is_empty(self):
-        """Check that default active_chords is empty."""
+    def test_default_active_channel_is_empty(self):
+        """Check that default active_channel is empty."""
         seq = sl.Sequencer()
-        self.assertEqual(seq._active_chords, {})
+        self.assertEqual(seq._active_channel, {})
 
     def test_default_event_q_is_empty(self):
         """Check that default event queue is empty."""
@@ -1250,14 +1250,14 @@ class TestSequencerCustomArgs(unittest.TestCase):
         )
         self.assertIn("ch1", seq._channels)
 
-    def test_channels_active_chords_initialized(self):
-        """Check that _active_chords is initialized for passed channels."""
+    def test_channels_active_channel_initialized(self):
+        """Check that _active_channel is initialized for passed channels."""
         channel = sl.Channel(name="ch1")
         seq = sl.Sequencer(
             channels={"ch1": {"event_list": channel, "instruments": []}}
         )
-        self.assertIn("ch1", seq._active_chords)
-        self.assertEqual(seq._active_chords["ch1"], {})
+        self.assertIn("ch1", seq._active_channel)
+        self.assertIsNone(seq._active_channel["ch1"])
 
 
 class TestSequencerGetters(unittest.TestCase):
@@ -1325,14 +1325,14 @@ class TestSequencerRemoveChannel(unittest.TestCase):
 
         self.assertNotIn("ch1", seq._channels)
 
-    def test_remove_channel_removes_from_active_chords(self):
-        """Check that remove_channel removes from _active_chords."""
+    def test_remove_channel_removes_from_active_channel(self):
+        """Check that remove_channel removes from _active_channel."""
         seq = sl.Sequencer(name="test_seq")
         channel = sl.Channel(name="ch1")
         seq.add_channel("ch1", channel)
         seq.remove_channel("ch1")
 
-        self.assertNotIn("ch1", seq._active_chords)
+        self.assertNotIn("ch1", seq._active_channel)
 
     def test_remove_channel_updates_event_queue(self):
         """Check that remove_channel updates _event_q."""
@@ -1418,8 +1418,8 @@ class TestSequencerSetters(unittest.TestCase):
 class TestSequencerSample(unittest.TestCase):
     """Tests for Sequencer sample method."""
 
-    def test_sample_returns_list_of_tuples(self):
-        """Check that sample returns list of (channel_name, float) tuples."""
+    def test_sample_returns_list_of_dicts(self):
+        """Check that sample returns list of dicts with channel, sample, lyrics, messages."""
         seq = sl.Sequencer(name="test_seq")
         channel = sl.Channel(name="ch1")
         seq.add_channel("ch1", channel)
@@ -1427,8 +1427,11 @@ class TestSequencerSample(unittest.TestCase):
         result = seq.sample()
         self.assertIsInstance(result, list)
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], "ch1")
-        self.assertIsInstance(result[0][1], float)
+        self.assertIsInstance(result[0], dict)
+        self.assertEqual(result[0]["channel"], "ch1")
+        self.assertIsInstance(result[0]["sample"], float)
+        self.assertIsInstance(result[0]["lyrics"], list)
+        self.assertIsInstance(result[0]["messages"], list)
 
     def test_sample_increments_time(self):
         """Check that sample increments _time."""
@@ -1449,7 +1452,7 @@ class TestSequencerSample(unittest.TestCase):
         seq.add_channel("ch1", channel)
 
         result = seq.sample()
-        self.assertEqual(result[0][1], 0.0)
+        self.assertEqual(result[0]["sample"], 0.0)
 
     def test_sample_multiple_channels(self):
         """Check that sample returns entry for each channel."""
@@ -1461,25 +1464,97 @@ class TestSequencerSample(unittest.TestCase):
 
         result = seq.sample()
         self.assertEqual(len(result), 2)
-        names = [r[0] for r in result]
+        names = [r["channel"] for r in result]
         self.assertIn("ch1", names)
         self.assertIn("ch2", names)
+
+    def test_sample_returns_lyrics_at_current_ptime(self):
+        """Check that sample returns lyrics occurring at current ptime."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+
+        event = sl.Event(ptime=0, name="lyric_event")
+        event.add_event(sl.Event.AmLyric("Hello world"))
+        channel.add_event(event)
+
+        seq.add_channel("ch1", channel)
+        result = seq.sample()
+
+        self.assertEqual(len(result[0]["lyrics"]), 1)
+        self.assertEqual(result[0]["lyrics"][0], "Hello world")
+
+    def test_sample_returns_multiple_lyrics(self):
+        """Check that sample returns multiple lyrics at same ptime."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+
+        event1 = sl.Event(ptime=0, name="lyric1")
+        event1.add_event(sl.Event.AmLyric("First lyric"))
+        channel.add_event(event1)
+
+        event2 = sl.Event(ptime=0, name="lyric2")
+        event2.add_event(sl.Event.AmLyric("Second lyric"))
+        channel.add_event(event2)
+
+        seq.add_channel("ch1", channel)
+        result = seq.sample()
+
+        self.assertEqual(len(result[0]["lyrics"]), 2)
+        self.assertIn("First lyric", result[0]["lyrics"])
+        self.assertIn("Second lyric", result[0]["lyrics"])
+
+    def test_sample_returns_messages_at_current_ptime(self):
+        """Check that sample returns messages occurring at current ptime."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+
+        msg_dict = {"control": "light", "value": 100}
+        event = sl.Event(ptime=0, name="msg_event")
+        event.add_event(sl.Event.AmMSG(msg_dict))
+        channel.add_event(event)
+
+        seq.add_channel("ch1", channel)
+        result = seq.sample()
+
+        self.assertEqual(len(result[0]["messages"]), 1)
+        self.assertEqual(result[0]["messages"][0], msg_dict)
+
+    def test_sample_lyrics_only_at_current_ptime(self):
+        """Check that lyrics are only returned at their scheduled ptime."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+
+        event = sl.Event(ptime=5, name="lyric_event")
+        event.add_event(sl.Event.AmLyric("Delayed lyric"))
+        channel.add_event(event)
+
+        seq.add_channel("ch1", channel)
+
+        # Sample at ptime 0-4, no lyrics
+        for _ in range(5):
+            result = seq.sample()
+            self.assertEqual(len(result[0]["lyrics"]), 0)
+
+        # Sample at ptime 5, should have lyric
+        result = seq.sample()
+        self.assertEqual(len(result[0]["lyrics"]), 1)
+        self.assertEqual(result[0]["lyrics"][0], "Delayed lyric")
 
 
 class TestSequencerProcessEvents(unittest.TestCase):
     """Tests for Sequencer process_events method."""
 
-    def test_process_events_returns_list_of_tuples(self):
-        """Check that process_events returns list of tuples."""
+    def test_process_events_returns_none(self):
+        """Check that process_events returns None."""
         seq = sl.Sequencer(name="test_seq")
         channel = sl.Channel(name="ch1")
         seq.add_channel("ch1", channel)
 
         result = seq.process_events()
-        self.assertIsInstance(result, list)
+        self.assertIsNone(result)
 
-    def test_process_events_adds_chord_to_active_chords(self):
-        """Check that process_events adds AmChord to active_chords."""
+    def test_process_events_adds_chord_to_active_channel(self):
+        """Check that process_events adds AmChord to active_channel."""
         seq = sl.Sequencer(name="test_seq")
         channel = sl.Channel(name="ch1")
 
@@ -1493,7 +1568,38 @@ class TestSequencerProcessEvents(unittest.TestCase):
         seq.add_channel("ch1", channel)
         seq.process_events()
 
-        self.assertIn("test_chord", seq._active_chords["ch1"])
+        self.assertIsNotNone(seq._active_channel["ch1"])
+        self.assertEqual(seq._active_channel["ch1"][0], chord)
+        self.assertEqual(seq._active_channel["ch1"][1], 100)
+
+    def test_process_events_rm_action_clears_active_channel(self):
+        """Check that rm action clears active channel."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+
+        chord = sl.Chord(name="test_chord")
+        chord.make_a_chord((4, "C", "major"))
+
+        # Add event
+        event1 = sl.Event(ptime=0, name="e1")
+        event1.add_event(sl.Event.AmChord("instr", chord, "add", 1000))
+        channel.add_event(event1)
+
+        # Remove event at ptime 10
+        event2 = sl.Event(ptime=10, name="e2")
+        event2.add_event(sl.Event.AmChord("instr", chord, "rm", 0))
+        channel.add_event(event2)
+
+        seq.add_channel("ch1", channel)
+
+        # Process add at ptime 0
+        seq.process_events()
+        self.assertIsNotNone(seq._active_channel["ch1"])
+
+        # Advance to ptime 10
+        seq.set_time(10)
+        seq.process_events()
+        self.assertIsNone(seq._active_channel["ch1"])
 
 
 class TestSequencerMsg(unittest.TestCase):
