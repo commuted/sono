@@ -999,5 +999,199 @@ class TestChannelMsg(unittest.TestCase):
         self.assertIn("event1", result["test_channel"])
 
 
+class TestSequencerAddChannel(unittest.TestCase):
+    """Tests for Sequencer add_channel method."""
+
+    def test_add_channel_adds_to_channels(self):
+        """Check that add_channel adds the channel to _channels."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+        self.assertIn("ch1", seq._channels)
+
+    def test_add_channel_structure(self):
+        """Check that added channel has correct structure."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        ch_data = seq._channels["ch1"]
+        self.assertIn("event_list", ch_data)
+        self.assertIn("instruments", ch_data)
+
+    def test_add_channel_stores_channel_instance(self):
+        """Check that the Channel instance is stored correctly."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        self.assertIs(seq._channels["ch1"]["event_list"], channel)
+
+    def test_add_channel_with_instruments(self):
+        """Check that add_channel stores instruments correctly."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        instr1 = sl.Instrument(name="piano")
+        instr2 = sl.Instrument(name="guitar")
+
+        seq.add_channel("ch1", channel, [instr1, instr2])
+
+        instruments = seq._channels["ch1"]["instruments"]
+        self.assertEqual(len(instruments), 2)
+        self.assertIs(instruments[0], instr1)
+        self.assertIs(instruments[1], instr2)
+
+    def test_add_channel_without_instruments(self):
+        """Check that add_channel defaults to empty instruments list."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        instruments = seq._channels["ch1"]["instruments"]
+        self.assertEqual(instruments, [])
+
+    def test_add_channel_initializes_event_pointer(self):
+        """Check that add_channel initializes _event_pointers for channel."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        self.assertIn("ch1", seq._event_pointers)
+        self.assertEqual(seq._event_pointers["ch1"], 0)
+
+    def test_add_channel_generates_event_queue(self):
+        """Check that add_channel generates _event_q correctly."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        channel.add_event(sl.Event(ptime=100, name="e1"))
+        channel.add_event(sl.Event(ptime=200, name="e2"))
+        channel.add_event(sl.Event(ptime=300, name="e3"))
+
+        seq.add_channel("ch1", channel)
+
+        self.assertIn("ch1", seq._event_q)
+        self.assertEqual(seq._event_q["ch1"], [100, 200, 300])
+
+    def test_add_channel_multiple_channels(self):
+        """Check that multiple channels can be added."""
+        seq = sl.Sequencer(name="test_seq")
+
+        channel1 = sl.Channel(name="ch1")
+        channel1.add_event(sl.Event(ptime=100, name="e1"))
+
+        channel2 = sl.Channel(name="ch2")
+        channel2.add_event(sl.Event(ptime=200, name="e2"))
+
+        seq.add_channel("ch1", channel1)
+        seq.add_channel("ch2", channel2)
+
+        self.assertEqual(len(seq._channels), 2)
+        self.assertIn("ch1", seq._channels)
+        self.assertIn("ch2", seq._channels)
+        self.assertEqual(seq._event_q["ch1"], [100])
+        self.assertEqual(seq._event_q["ch2"], [200])
+
+    def test_add_channel_get_channel(self):
+        """Check that get_channel returns correct data after add_channel."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        instr = sl.Instrument(name="piano")
+        seq.add_channel("ch1", channel, [instr])
+
+        result = seq.get_channel("ch1")
+        self.assertIn("event_list", result)
+        self.assertIn("instruments", result)
+        self.assertIs(result["event_list"], channel)
+        self.assertEqual(len(result["instruments"]), 1)
+
+    def test_add_channel_get_event_list(self):
+        """Check that get_event_list returns Channel after add_channel."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        result = seq.get_event_list("ch1")
+        self.assertIs(result, channel)
+        self.assertIsInstance(result, sl.Channel)
+
+    def test_add_channel_get_instruments(self):
+        """Check that get_instruments returns list after add_channel."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        instr = sl.Instrument(name="piano")
+        seq.add_channel("ch1", channel, [instr])
+
+        result = seq.get_instruments("ch1")
+        self.assertEqual(len(result), 1)
+        self.assertIs(result[0], instr)
+
+    def test_add_channel_equivalent_to_init(self):
+        """Check that add_channel produces same result as __init__."""
+        # Create identical channels
+        channel1 = sl.Channel(name="ch1")
+        channel1.add_event(sl.Event(ptime=100, name="e1"))
+        channel1.add_event(sl.Event(ptime=200, name="e2"))
+
+        channel2 = sl.Channel(name="ch2")
+        channel2.add_event(sl.Event(ptime=100, name="e1"))
+        channel2.add_event(sl.Event(ptime=200, name="e2"))
+
+        instr1 = sl.Instrument(name="piano")
+        instr2 = sl.Instrument(name="piano")
+
+        # Method 1: via __init__
+        seq1 = sl.Sequencer(
+            channels={"ch1": {"event_list": channel1, "instruments": [instr1]}},
+            name="seq1"
+        )
+
+        # Method 2: via add_channel
+        seq2 = sl.Sequencer(name="seq2")
+        seq2.add_channel("ch2", channel2, [instr2])
+
+        # Compare structures
+        self.assertEqual(
+            list(seq1._channels["ch1"].keys()),
+            list(seq2._channels["ch2"].keys())
+        )
+        self.assertEqual(seq1._event_pointers["ch1"], seq2._event_pointers["ch2"])
+        self.assertEqual(seq1._event_q["ch1"], seq2._event_q["ch2"])
+
+    def test_add_channel_empty_channel(self):
+        """Check that add_channel works with empty channel."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel)
+
+        self.assertIn("ch1", seq._channels)
+        self.assertEqual(seq._event_q["ch1"], [])
+
+    def test_add_channel_overwrites_existing(self):
+        """Check that add_channel overwrites existing channel with same name."""
+        seq = sl.Sequencer(name="test_seq")
+
+        channel1 = sl.Channel(name="ch1")
+        channel1.add_event(sl.Event(ptime=100, name="e1"))
+
+        channel2 = sl.Channel(name="ch1_new")
+        channel2.add_event(sl.Event(ptime=200, name="e2"))
+
+        seq.add_channel("ch1", channel1)
+        seq.add_channel("ch1", channel2)
+
+        # Should have overwritten with channel2
+        self.assertEqual(len(seq._channels), 1)
+        self.assertIs(seq._channels["ch1"]["event_list"], channel2)
+        self.assertEqual(seq._event_q["ch1"], [200])
+
+    def test_add_channel_with_none_instruments(self):
+        """Check that add_channel handles None instruments."""
+        seq = sl.Sequencer(name="test_seq")
+        channel = sl.Channel(name="ch1")
+        seq.add_channel("ch1", channel, None)
+
+        self.assertEqual(seq._channels["ch1"]["instruments"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
