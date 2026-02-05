@@ -125,6 +125,14 @@ class SoundElement:
         self._phase += self._phase_increment
         return self._sample
 
+    def sample_pluck(self) -> float:
+        """Alias for sample() to support pluck propagation from parent elements.
+
+        Returns:
+            float: The sample value (same as sample()).
+        """
+        return self.sample()
+
     def triangle(self) -> float:
         """Generate the next triangle wave sample.
 
@@ -575,6 +583,18 @@ class MultiplyElements:
         b_sample = self._b.sample() if self._b else 0.0
         return a_sample * b_sample * self._scale
 
+    def sample_pluck(self) -> float:
+        """Generate the next sample by multiplying input pluck samples.
+
+        Propagates sample_pluck() to children for embedded Pluck support.
+
+        Returns:
+            float: The product of input pluck samples, scaled.
+        """
+        a_sample = self._a.sample_pluck() if self._a else 0.0
+        b_sample = self._b.sample_pluck() if self._b else 0.0
+        return a_sample * b_sample * self._scale
+
     def dump(self) -> Dict[str, Any]:
         """Serialize the element's state for storage or factory use.
 
@@ -769,6 +789,18 @@ class MixElements:
         """
         sea = self._a.sample() if self._a else 0.0
         seb = self._b.sample() if self._b else 0.0
+        return ((sea + seb) - (sea * seb)) * self._scale
+
+    def sample_pluck(self) -> float:
+        """Generate the next sample by mixing input pluck samples.
+
+        Propagates sample_pluck() to children for embedded Pluck support.
+
+        Returns:
+            float: The mixed pluck sample, scaled.
+        """
+        sea = self._a.sample_pluck() if self._a else 0.0
+        seb = self._b.sample_pluck() if self._b else 0.0
         return ((sea + seb) - (sea * seb)) * self._scale
 
     def set_on(self) -> None:
@@ -979,6 +1011,18 @@ class SumElements:
         """
         sea = self._a.sample() if self._a else 0.0
         seb = self._b.sample() if self._b else 0.0
+        return (sea + seb) * self._scale
+
+    def sample_pluck(self) -> float:
+        """Generate the next sample by summing input pluck samples.
+
+        Propagates sample_pluck() to children for embedded Pluck support.
+
+        Returns:
+            float: The sum of input pluck samples, scaled.
+        """
+        sea = self._a.sample_pluck() if self._a else 0.0
+        seb = self._b.sample_pluck() if self._b else 0.0
         return (sea + seb) * self._scale
 
     def set_on(self) -> None:
@@ -1388,6 +1432,16 @@ class FixedAttenuate:
             float: The attenuated sample.
         """
         return (self._a.sample() if self._a else 0.0) * self._scale
+
+    def sample_pluck(self) -> float:
+        """Generate the next pluck sample with fixed attenuation.
+
+        Propagates sample_pluck() to child for embedded Pluck support.
+
+        Returns:
+            float: The attenuated pluck sample.
+        """
+        return (self._a.sample_pluck() if self._a else 0.0) * self._scale
 
     def msg(self, msg: Dict[str, Dict[str, List]]) -> Dict[str, Any]:
         """Process control messages to set or get properties.

@@ -135,21 +135,15 @@ class Chord:
         return self._a.sample() if self._a else 0.0
 
     def sample_pluck(self) -> float:
-        """Generate the next sample from the underlying element.
+        """Generate the next pluck sample from the underlying element.
+
+        Propagates sample_pluck() through the hierarchy, triggering any
+        embedded Pluck elements regardless of their position.
 
         Returns:
-            float: The sample value, or 0.0 if no element is set.
-
-            Raises: TypeError when no sample_pluck() method in hierarchy
-
+            float: The pluck sample value, or 0.0 if no element is set.
         """
-        if isinstance(self.get_note(), Pluck):
-            return self._a.sample_pluck() if self._a else 0.0
-        else:
-            actual_type = self._a.get_type() if self._a else "None"
-            raise TypeError(
-               f"Chord top hierarchy is not type Pluck. Is type {actual_type}"
-            )
+        return self._a.sample_pluck() if self._a else 0.0
 
     def set_on(self) -> None:
         """Activate the underlying sound element."""

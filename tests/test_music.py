@@ -247,18 +247,18 @@ class TestChordSamplePluck(unittest.TestCase):
         fresh_sample = chord.sample_pluck()
         self.assertGreater(fresh_sample, decayed_sample)
 
-    def test_sample_pluck_without_pluck_raises_error(self):
-        """Check that sample_pluck with non-Pluck element raises TypeError."""
+    def test_sample_pluck_without_pluck_propagates(self):
+        """Check that sample_pluck propagates through non-Pluck elements."""
         sound = sl.SoundElement(phase=math.pi / 2)
         chord = sl.Chord(note=sound)
-        with self.assertRaises(TypeError):
-            chord.sample_pluck()
+        # Should return sample value, not raise error
+        sample = chord.sample_pluck()
+        self.assertIsInstance(sample, float)
 
-    def test_sample_pluck_with_no_note_raises_error(self):
-        """Check that sample_pluck with no element raises TypeError."""
+    def test_sample_pluck_with_no_note_returns_zero(self):
+        """Check that sample_pluck with no element returns 0.0."""
         chord = sl.Chord()
-        with self.assertRaises(TypeError):
-            chord.sample_pluck()
+        self.assertEqual(chord.sample_pluck(), 0.0)
 
 
 class TestChordOnOff(unittest.TestCase):
