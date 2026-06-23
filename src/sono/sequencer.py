@@ -489,6 +489,8 @@ class Sequencer:
         self,
         channels: Dict[str, Dict[str, Channel | List[Instrument]]] | None = None,
         name: str | None = None,
+        sample_rate: int = 44100,
+        release_sec: float = 0.005,
     ):
         """Initialize a Sequencer instance.
 
@@ -498,15 +500,29 @@ class Sequencer:
                 - "event_list": the Channel instance
                 - "instruments": list of associated Instrument instances
             name (str, optional): Unique identifier for the sequencer.
+            sample_rate (int): Sample rate in Hz used only to size the chord
+                release fade (default: 44100). The sequencer otherwise counts in
+                samples and is rate-agnostic.
+            release_sec (float): Duration of the linear release fade applied when
+                a chord's duration elapses or it is removed, so notes end
+                smoothly instead of being hard-cut (default: 0.005 = 5 ms).
         """
         self._TYPE = "Sequencer"
         self._channels: Dict[str, Dict[str, Channel | List[Instrument]]] = channels or {}
         self._event_q: Dict[str, List[int]] = {}
         self._name = name or f"{self._TYPE}_{id(self)}"
         self._time: int = 0
+        self._sample_rate = sample_rate
+        # Release length in samples, derived from release_sec so the fade is a
+        # constant ~time regardless of sample rate. Floored at 1 sample.
+        self._release_samples = max(1, round(release_sec * sample_rate))
         self._active_channel: Dict[str, Tuple[Chord, int] | None] = {
             k: None for k in self._channels
         }
+        # Channels currently fading out: name -> [chord, samples_remaining].
+        # Kept separate from _active_channel so the latter's "None after rm/
+        # expiry" contract is preserved while the release still sounds.
+        self._releasing: Dict[str, List[Any]] = {}
         self._next_event_time: int = 0
         self.init()
 
@@ -579,6 +595,7 @@ class Sequencer:
             del self._channels[name]
             if name in self._active_channel:
                 del self._active_channel[name]
+            self._releasing.pop(name, None)
             self.generate_event_queue()
         else:
             raise ValueError(f"{name} channel not found in _channels")
@@ -674,8 +691,13 @@ class Sequencer:
                     if self._time < end_time:
                         channel_sample = chord.sample()
                     else:
-                        # Chord expired, clear it
+                        # Duration elapsed: hand the chord to a short release
+                        # fade instead of cutting it dead (see _release_sample).
                         self._active_channel[channel_name] = None
+                        self._releasing[channel_name] = [chord, self._release_samples]
+
+            # Mix in a fading-out chord, if this channel has one.
+            channel_sample += self._release_sample(channel_name)
 
             result.append({
                 "channel": channel_name,
@@ -686,6 +708,25 @@ class Sequencer:
 
         self._time += 1
         return result
+
+    def _release_sample(self, channel_name: str) -> float:
+        """Produce the next sample of a channel's fading-out chord, if any.
+
+        Applies a linear ramp from full to zero over _release_samples samples,
+        then deactivates the chord and clears the release slot. Returns 0.0 when
+        the channel is not releasing.
+        """
+        rel = self._releasing.get(channel_name)
+        if rel is None:
+            return 0.0
+        chord, remaining = rel
+        fade = remaining / self._release_samples
+        val = chord.sample() * fade
+        rel[1] = remaining - 1
+        if rel[1] <= 0:
+            chord.set_off()
+            del self._releasing[channel_name]
+        return val
 
     def process_events(self) -> None:
         """Process events at the current time, updating active chord per channel.
@@ -704,6 +745,8 @@ class Sequencer:
                     duration = event_item._duration
 
                     if action in ("add", "add_pluck"):
+                        # New note supersedes any release fade on this channel.
+                        self._releasing.pop(channel_name, None)
                         # Set this chord as the active chord for the channel
                         end_time = self._time + duration
                         self._active_channel[channel_name] = (chord, end_time)
@@ -716,10 +759,13 @@ class Sequencer:
                         if active is not None:
                             active[0].sample_pluck()
                     elif action == "rm":
-                        # Remove chord from active channel
+                        # Remove from the active slot but let it fade out via a
+                        # release rather than cutting it dead (clicks otherwise).
                         active = self._active_channel.get(channel_name)
                         if active is not None:
-                            active[0].set_off()
+                            self._releasing[channel_name] = [
+                                active[0], self._release_samples
+                            ]
                             self._active_channel[channel_name] = None
 
     def get_name(self) -> str:

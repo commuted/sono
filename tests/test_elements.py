@@ -2877,6 +2877,41 @@ class TestFixedAttenuateNesting(unittest.TestCase):
         self.assertAlmostEqual(a3.sample(), 0.2, places=10)
 
 
+class TestPluckReArmAndRelease(unittest.TestCase):
+    """Regression tests (issue #1): set_on() re-arms the decay envelope, and the
+    pluck ends with a release ramp instead of a hard cut."""
+
+    def test_set_on_rearms_decay_envelope(self):
+        """A re-triggered pluck restarts at full amplitude rather than from its
+        decayed/expired level (set_on resets the pluck clock)."""
+        sound_a = sl.SoundElement(frequency=1.0, phase=math.pi / 2)  # ~constant 1.0
+        elem = sl.Pluck(a=sound_a, lambda_dc=5.0)  # fast decay
+        elem.set_on()
+        elem.sample()  # t=0 -> ~1.0
+        for _ in range(20000):
+            elem.sample()  # let it decay substantially
+        decayed = abs(elem.sample())
+        self.assertLess(decayed, 0.5)  # confirm it actually decayed
+
+        elem.set_on()  # note-on again
+        rearmed = abs(elem.sample())
+        self.assertGreater(rearmed, 0.9)  # back to ~full amplitude
+        self.assertGreater(rearmed, decayed)
+
+    def test_no_hard_cut_at_stop(self):
+        """The last audible sample before auto-off is ramped near zero, not left
+        near full amplitude (which would click), even with a tiny lambda_dc."""
+        sound_a = sl.SoundElement(frequency=1.0, phase=math.pi / 2)  # ~constant 1.0
+        elem = sl.Pluck(a=sound_a, lambda_dc=0.001, stop=0.02, sample_rate=44100)
+        elem.set_on()
+        samples = [elem.sample() for _ in range(int(0.02 * 44100) + 10)]
+        nonzero = [s for s in samples if s != 0.0]
+        peak = max(abs(s) for s in nonzero)
+        self.assertGreater(peak, 0.9)              # reached ~full amplitude early
+        self.assertLess(abs(nonzero[-1]), 0.1 * peak)  # ramped down before the cut
+        self.assertEqual(samples[-1], 0.0)         # and is off afterward
+
+
 
 if __name__ == "__main__":
     unittest.main()

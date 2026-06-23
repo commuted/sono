@@ -1767,5 +1767,86 @@ class TestSequencerGenerateEventQueue(unittest.TestCase):
         self.assertEqual(seq._event_q["ch2"], [200, 300])
 
 
+class TestSequencerRelease(unittest.TestCase):
+    """Regression tests (issue #2): a chord fades out via a short release when
+    its duration elapses or it is removed, instead of being hard-cut to zero.
+    The _active_channel "None after rm/expiry" contract is preserved."""
+
+    @staticmethod
+    def _sustained_chord():
+        # ~constant-amplitude chord (low freq so sin stays ~1) with NO Pluck, so
+        # the only thing that can fade it out is the sequencer's release ramp.
+        return sl.Chord(sl.SoundElement(frequency=1.0, phase=math.pi / 2))
+
+    def test_release_fade_after_duration(self):
+        seq = sl.Sequencer(name="seq")
+        ch = sl.Channel(name="ch1")
+        chord = self._sustained_chord()
+        ev = sl.Event(ptime=0, name="e1")
+        ev.add_event(sl.Event.AmChord("instr", chord, "add", 3))
+        ch.add_event(ev)
+        seq.add_channel("ch1", ch)
+
+        # Active window (times 0,1,2): audible.
+        for _ in range(3):
+            self.assertNotEqual(seq.sample()[0]["sample"], 0.0)
+
+        # Duration elapsed: active slot cleared (contract), but still sounding.
+        first_release = seq.sample()[0]["sample"]
+        self.assertIsNone(seq._active_channel["ch1"])
+        self.assertGreater(abs(first_release), 0.5)
+
+        rest = [seq.sample()[0]["sample"] for _ in range(seq._release_samples)]
+        self.assertGreater(first_release, rest[-1])       # fading down
+        self.assertNotIn("ch1", seq._releasing)           # release complete
+        self.assertEqual(seq.sample()[0]["sample"], 0.0)  # silent afterward
+
+    def test_rm_triggers_release_not_hard_cut(self):
+        seq = sl.Sequencer(name="seq")
+        ch = sl.Channel(name="ch1")
+        chord = self._sustained_chord()
+        e_add = sl.Event(ptime=0, name="e1")
+        e_add.add_event(sl.Event.AmChord("instr", chord, "add", 1000))
+        ch.add_event(e_add)
+        e_rm = sl.Event(ptime=5, name="e2")
+        e_rm.add_event(sl.Event.AmChord("instr", chord, "rm", 0))
+        ch.add_event(e_rm)
+        seq.add_channel("ch1", ch)
+
+        for _ in range(5):  # times 0..4: active
+            seq.sample()
+
+        # time 5: rm processed -> active cleared (contract) but fade continues.
+        s = seq.sample()[0]["sample"]
+        self.assertIsNone(seq._active_channel["ch1"])
+        self.assertGreater(abs(s), 0.5)
+
+        rest = [seq.sample()[0]["sample"] for _ in range(seq._release_samples)]
+        self.assertGreater(abs(s), abs(rest[-1]))         # fading down
+        self.assertNotIn("ch1", seq._releasing)
+        self.assertEqual(seq.sample()[0]["sample"], 0.0)
+
+    def test_new_note_supersedes_release(self):
+        seq = sl.Sequencer(name="seq")
+        ch = sl.Channel(name="ch1")
+        e1 = sl.Event(ptime=0, name="e1")
+        e1.add_event(sl.Event.AmChord("instr", self._sustained_chord(), "add", 2))
+        ch.add_event(e1)
+        e2 = sl.Event(ptime=5, name="e2")
+        e2.add_event(sl.Event.AmChord("instr", self._sustained_chord(), "add", 100))
+        ch.add_event(e2)
+        seq.add_channel("ch1", ch)
+
+        for _ in range(3):  # times 0,1 active; time 2 begins release
+            seq.sample()
+        self.assertIn("ch1", seq._releasing)
+
+        seq.sample()  # t3 (releasing)
+        seq.sample()  # t4 (releasing)
+        seq.sample()  # t5: new add supersedes the release
+        self.assertNotIn("ch1", seq._releasing)
+        self.assertIsNotNone(seq._active_channel["ch1"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1154,6 +1154,15 @@ class Pluck:
         val = (self._a.sample() if self._a else 0.0) * e ** (
             -self._lambda_dc * self._pluck_time
         )
+        # Linear release ramp over the final `release` seconds so the envelope
+        # reaches zero smoothly at `stop` instead of being hard-cut. Without it,
+        # a small lambda_dc relative to stop leaves the signal near full
+        # amplitude when set_off() fires, producing an audible click. Clamped to
+        # the window so very short plucks still end cleanly.
+        release = min(0.01, self._stop)
+        remaining = self._stop - self._pluck_time
+        if remaining < release:
+            val *= max(0.0, remaining / release)
         self._pluck_time += self._pluck_inc
         if self._pluck_time >= self._stop:
             self.set_off()
@@ -1262,8 +1271,14 @@ class Pluck:
             self._a.set_off()
 
     def set_on(self) -> None:
-        """Activate the pluck effect and input element."""
+        """Activate the pluck effect and input element.
+
+        Re-arms the decay envelope by resetting the pluck clock, so re-triggering
+        a previously-played (and possibly expired) Pluck via note-on starts the
+        decay from full amplitude again rather than from where it left off.
+        """
         self._on = True
+        self._pluck_time = 0.0
         if self._a:
             self._a.set_on()
 
