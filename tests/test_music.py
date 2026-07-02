@@ -801,6 +801,28 @@ class TestChordFactory(unittest.TestCase):
         self.assertEqual(restored.get_name(), original.get_name())
         self.assertEqual(restored.get_type(), "Chord")
 
+    def test_factory_bare_leaf_dump(self):
+        """A bare leaf dump (empty assembly) reconstructs without a log2(0) crash."""
+        leaf = sl.SoundElement(name="leaf", frequency=660.0, scale=0.5)
+        dump = leaf.dump()  # not wrapped in a Chord -> _assembly stays empty
+
+        restored = sl.Chord()
+        restored.note_factory_hier_db(dump)
+
+        note = restored.get_note()
+        self.assertEqual(restored.get_name(), "leaf")
+        self.assertEqual(note.get_name(), "leaf")
+        self.assertEqual(note.get_frequency(), 660.0)
+        self.assertEqual(note.get_scale(), 0.5)
+
+    def test_factory_bare_leaf_dump_new_oscillator(self):
+        """The empty-assembly path also works for a new leaf oscillator type."""
+        leaf = sl.SawtoothElement(name="saw_leaf", frequency=220.0)
+        restored = sl.Chord()
+        restored.note_factory_hier_db(leaf.dump())
+        self.assertEqual(restored.get_note().get_type(), "SawtoothElement")
+        self.assertEqual(restored.get_note().get_name(), "saw_leaf")
+
 
 class TestChordNesting(unittest.TestCase):
     """Tests for Chord with nested elements."""

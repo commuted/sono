@@ -408,6 +408,19 @@ class Chord:
             ValueError: If the factory fails to converge or has cyclic dependencies.
         """
         self.recursive_walk(data)
+        # Handle leaf nodes (no assembly needed). A bare leaf produces an empty
+        # _assembly, which would make the log2() timeout below hit a math domain
+        # error; short-circuit here instead.
+        if len(self._assembly) == 0:
+            if len(self._done) == 1:
+                for k, v in self._done.items():
+                    self.set_name(k)
+                    self.set_note(v)
+                return
+            else:
+                raise ValueError(
+                    f"Chord factory failed: expected 1 leaf element, got {len(self._done)}"
+                )
         time_out = int(len(self._assembly) * (log2(len(self._assembly)) + 1))
         cnt = 0
         while self._collect:
