@@ -34,6 +34,11 @@ from typing import Union, Any, Dict, List, Tuple, TYPE_CHECKING
 from math import sin, asin, pi, e, log2
 
 if TYPE_CHECKING:
+    from .oscillators import SawtoothElement, SquareElement, WhiteNoiseElement
+    from .modulation import LFO, FrequencyModulation, ADSR, EnvelopedElement
+    from .filters import BiquadFilter
+    from .io_elements import WAVFileElement, DeviceInputElement
+    
     SoundElementType = Union[
         "SoundElement",
         "SumElements",
@@ -41,6 +46,16 @@ if TYPE_CHECKING:
         "MixElements",
         "Pluck",
         "FixedAttenuate",
+        "SawtoothElement",
+        "SquareElement",
+        "WhiteNoiseElement",
+        "LFO",
+        "FrequencyModulation",
+        "ADSR",
+        "EnvelopedElement",
+        "BiquadFilter",
+        "WAVFileElement",
+        "DeviceInputElement",
     ]
 
 
@@ -435,17 +450,7 @@ class MultiplyElements:
         Raises:
             ValueError: If a does not have a sample() method.
         """
-        if isinstance(
-            a,
-            (
-                SoundElement,
-                SumElements,
-                MultiplyElements,
-                MixElements,
-                Pluck,
-                FixedAttenuate,
-            ),
-        ):
+        if hasattr(a, 'sample'):
             self._a = a
         else:
             raise ValueError(
@@ -461,17 +466,7 @@ class MultiplyElements:
         Raises:
             ValueError: If b does not have a sample() method.
         """
-        if isinstance(
-            b,
-            (
-                SoundElement,
-                SumElements,
-                MultiplyElements,
-                MixElements,
-                Pluck,
-                FixedAttenuate,
-            ),
-        ):
+        if hasattr(b, 'sample'):
             self._b = b
         else:
             raise ValueError(
@@ -657,17 +652,7 @@ class MixElements:
         Raises:
             ValueError: If a does not have a sample() method.
         """
-        if isinstance(
-            a,
-            (
-                SoundElement,
-                SumElements,
-                MultiplyElements,
-                MixElements,
-                Pluck,
-                FixedAttenuate,
-            ),
-        ):
+        if hasattr(a, 'sample'):
             self._a = a
         else:
             raise ValueError(
@@ -683,17 +668,7 @@ class MixElements:
         Raises:
             ValueError: If b does not have a sample() method.
         """
-        if isinstance(
-            b,
-            (
-                SoundElement,
-                SumElements,
-                MultiplyElements,
-                MixElements,
-                Pluck,
-                FixedAttenuate,
-            ),
-        ):
+        if hasattr(b, 'sample'):
             self._b = b
         else:
             raise ValueError(
@@ -879,17 +854,7 @@ class SumElements:
         Raises:
             ValueError: If a does not have a sample() method.
         """
-        if isinstance(
-            a,
-            (
-                SoundElement,
-                SumElements,
-                MultiplyElements,
-                MixElements,
-                Pluck,
-                FixedAttenuate,
-            ),
-        ):
+        if hasattr(a, 'sample'):
             self._a = a
         else:
             raise ValueError(
@@ -905,17 +870,7 @@ class SumElements:
         Raises:
             ValueError: If b does not have a sample() method.
         """
-        if isinstance(
-            b,
-            (
-                SoundElement,
-                SumElements,
-                MultiplyElements,
-                MixElements,
-                Pluck,
-                FixedAttenuate,
-            ),
-        ):
+        if hasattr(b, 'sample'):
             self._b = b
         else:
             raise ValueError(
@@ -1117,17 +1072,7 @@ class Pluck:
         Raises:
             ValueError: If a does not have a sample() method.
         """
-        if isinstance(
-            a,
-            (
-                SoundElement,
-                SumElements,
-                MultiplyElements,
-                MixElements,
-                Pluck,
-                FixedAttenuate,
-            ),
-        ):
+        if hasattr(a, 'sample'):
             self._a = a
         else:
             raise ValueError("object assignment to Pluck has no attribute sample()")
@@ -1399,17 +1344,7 @@ class FixedAttenuate:
         Raises:
             ValueError: If a does not have a sample() method.
         """
-        if isinstance(
-            a,
-            (
-                SoundElement,
-                SumElements,
-                MultiplyElements,
-                MixElements,
-                Pluck,
-                FixedAttenuate,
-            ),
-        ):
+        if hasattr(a, 'sample'):
             self._a = a
         else:
             raise ValueError(

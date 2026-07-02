@@ -18,6 +18,24 @@ from .elements import (
     Pluck,
     FixedAttenuate,
 )
+from .oscillators import (
+    SawtoothElement,
+    SquareElement,
+    WhiteNoiseElement,
+)
+from .modulation import (
+    LFO,
+    FrequencyModulation,
+    ADSR,
+    EnvelopedElement,
+)
+from .filters import (
+    BiquadFilter,
+)
+from .io_elements import (
+    WAVFileElement,
+    DeviceInputElement,
+)
 
 if TYPE_CHECKING:
     SoundElementType = Union[
@@ -27,6 +45,16 @@ if TYPE_CHECKING:
         MixElements,
         Pluck,
         FixedAttenuate,
+        SawtoothElement,
+        SquareElement,
+        WhiteNoiseElement,
+        LFO,
+        FrequencyModulation,
+        ADSR,
+        EnvelopedElement,
+        BiquadFilter,
+        WAVFileElement,
+        DeviceInputElement,
     ]
 
 
@@ -106,6 +134,16 @@ class Chord:
                 MixElements,
                 Pluck,
                 FixedAttenuate,
+                SawtoothElement,
+                SquareElement,
+                WhiteNoiseElement,
+                LFO,
+                FrequencyModulation,
+                ADSR,
+                EnvelopedElement,
+                BiquadFilter,
+                WAVFileElement,
+                DeviceInputElement,
                 Chord,
             ),
         ):
@@ -263,6 +301,102 @@ class Chord:
             self._collect[data["get_name"]] = Chord(name=data["get_name"])
             self._assembly[data["get_name"]] = {"a": data["a"]["get_name"]}
             self.recursive_walk(data["a"])
+        elif get_type == "SawtoothElement":
+            self._done[data["get_name"]] = SawtoothElement(
+                name=data["get_name"],
+                frequency=data["get_frequency"],
+                sample_rate=data["get_sample_rate"],
+                phase=data["get_phase"],
+                scale=data["get_scale"],
+            )
+        elif get_type == "SquareElement":
+            self._done[data["get_name"]] = SquareElement(
+                name=data["get_name"],
+                frequency=data["get_frequency"],
+                sample_rate=data["get_sample_rate"],
+                duty_cycle=data["get_duty_cycle"],
+                phase=data["get_phase"],
+                scale=data["get_scale"],
+            )
+        elif get_type == "WhiteNoiseElement":
+            self._done[data["get_name"]] = WhiteNoiseElement(
+                name=data["get_name"],
+                sample_rate=data["get_sample_rate"],
+                scale=data["get_scale"],
+                seed=data["get_seed"],
+            )
+        elif get_type == "LFO":
+            self._done[data["get_name"]] = LFO(
+                name=data["get_name"],
+                rate=data["get_rate"],
+                depth=data["get_depth"],
+                waveform=data["get_waveform"],
+                sample_rate=data["get_sample_rate"],
+            )
+        elif get_type == "FrequencyModulation":
+            self._collect[data["get_name"]] = FrequencyModulation(
+                carrier=None,
+                modulator=None,
+                name=data["get_name"],
+            )
+            self._collect[data["get_name"]].set_scale(data["get_scale"])
+            self._assembly[data["get_name"]] = {
+                "carrier": data["carrier"]["get_name"],
+                "modulator": data["modulator"]["get_name"],
+            }
+            self.recursive_walk(data["carrier"])
+            self.recursive_walk(data["modulator"])
+        elif get_type == "ADSR":
+            self._done[data["get_name"]] = ADSR(
+                name=data["get_name"],
+                attack=data["attack"],
+                decay=data["decay"],
+                sustain=data["sustain"],
+                release=data["release"],
+                sample_rate=data["get_sample_rate"],
+            )
+        elif get_type == "EnvelopedElement":
+            self._collect[data["get_name"]] = EnvelopedElement(
+                source=None,
+                envelope=None,
+                name=data["get_name"],
+            )
+            self._collect[data["get_name"]].set_scale(data["get_scale"])
+            self._assembly[data["get_name"]] = {
+                "source": data["source"]["get_name"],
+                "envelope": data["envelope"]["get_name"],
+            }
+            self.recursive_walk(data["source"])
+            self.recursive_walk(data["envelope"])
+        elif get_type == "BiquadFilter":
+            self._collect[data["get_name"]] = BiquadFilter(
+                source=None,
+                filter_type=data["get_filter_type"],
+                cutoff=data["get_cutoff"],
+                q=data["get_q"],
+                gain=data["get_gain"],
+                sample_rate=data["get_sample_rate"],
+                name=data["get_name"],
+            )
+            self._collect[data["get_name"]].set_scale(data["get_scale"])
+            self._assembly[data["get_name"]] = {"source": data["source"]["get_name"]}
+            self.recursive_walk(data["source"])
+        elif get_type == "WAVFileElement":
+            self._done[data["get_name"]] = WAVFileElement(
+                filepath=data["get_filepath"],
+                loop=data["get_loop"],
+                sample_rate=data["get_sample_rate"],
+                name=data["get_name"],
+                scale=data["get_scale"],
+            )
+        elif get_type == "DeviceInputElement":
+            self._done[data["get_name"]] = DeviceInputElement(
+                device_id=data["get_device_id"],
+                sample_rate=data["get_sample_rate"],
+                channels=data["get_channels"],
+                name=data["get_name"],
+                scale=data["get_scale"],
+            )
 
     def note_factory_hier_db(self, data: Dict[str, Any]) -> None:
         """Build a note hierarchy from a serialized data dictionary.
@@ -292,6 +426,29 @@ class Chord:
                         to_delete.append(key)
                         del self._done[val["a"]]
                         del self._done[val["b"]]
+                elif "carrier" in val and "modulator" in val:
+                    if val["carrier"] in self._done and val["modulator"] in self._done:
+                        self._collect[key]._carrier = self._done[val["carrier"]]
+                        self._collect[key]._modulator = self._done[val["modulator"]]
+                        self._collect[key]._base_frequency = self._done[val["carrier"]].get_frequency()
+                        self._done[key] = self._collect[key]
+                        to_delete.append(key)
+                        del self._done[val["carrier"]]
+                        del self._done[val["modulator"]]
+                elif "source" in val and "envelope" in val:
+                    if val["source"] in self._done and val["envelope"] in self._done:
+                        self._collect[key]._source = self._done[val["source"]]
+                        self._collect[key]._envelope = self._done[val["envelope"]]
+                        self._done[key] = self._collect[key]
+                        to_delete.append(key)
+                        del self._done[val["source"]]
+                        del self._done[val["envelope"]]
+                elif "source" in val:
+                    if val["source"] in self._done:
+                        self._collect[key]._source = self._done[val["source"]]
+                        self._done[key] = self._collect[key]
+                        to_delete.append(key)
+                        del self._done[val["source"]]
                 elif "a" in val:
                     if val["a"] in self._done:
                         self._collect[key].set_a(self._done[val["a"]])
@@ -519,6 +676,16 @@ class Instrument:
                 MixElements,
                 Pluck,
                 FixedAttenuate,
+                SawtoothElement,
+                SquareElement,
+                WhiteNoiseElement,
+                LFO,
+                FrequencyModulation,
+                ADSR,
+                EnvelopedElement,
+                BiquadFilter,
+                WAVFileElement,
+                DeviceInputElement,
             ),
         ):
             raise ValueError("object assignment as Chord has no attribute sample()")
