@@ -1,6 +1,6 @@
 # sono
 
-Audio synthesis library for procedural audio generation, musical abstractions, and sequencing.
+Audio synthesis library for procedural audio generation, musical abstractions, and sequencing. The architecture looks like an ASIC. I plan a front end that looks like a object based schematic. It's more competent than the documentation. 
 
 ## Installation
 
