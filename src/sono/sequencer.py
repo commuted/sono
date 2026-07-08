@@ -127,18 +127,70 @@ class Event:
             """
             self._msg = msg
 
-    def add_event(self, item: "Event.AmChord | Event.AmException | Event.AmLyric | Event.AmMSG") -> None:
+    class AmControl:
+        """A class to represent a device control event.
+
+        Used to control external devices like lights, bells, relays, or other
+        electrical interfaces synchronized with the music.
+
+        Attributes:
+            device (str): The device identifier (e.g., "light_1", "bell", "relay_a").
+            action (str): The action to perform (e.g., "on", "off", "toggle", "pulse").
+            parameters (Dict[str, Any]): Optional parameters for the action
+                (e.g., {"duration": 0.5, "intensity": 0.8}).
+        """
+
+        def __init__(self, device: str, action: str, parameters: Dict[str, Any] | None = None):
+            """Initialize an AmControl instance.
+
+            Args:
+                device (str): The device identifier.
+                action (str): The action to perform.
+                parameters (Dict[str, Any], optional): Additional parameters for the action.
+            """
+            self._device = device
+            self._action = action
+            self._parameters = parameters or {}
+
+    class AmSyncLyric:
+        """A class to represent a word-synchronized lyric event.
+
+        Displays a sentence with a pointer indicating which word is currently
+        being sung. The sentence persists until replaced by a new sentence,
+        while the pointer updates to track musical timing.
+
+        Attributes:
+            sentence (str): The complete lyric sentence.
+            word_index (int): Zero-based index of the current word being sung.
+        """
+
+        def __init__(self, sentence: str, word_index: int):
+            """Initialize an AmSyncLyric instance.
+
+            Args:
+                sentence (str): The complete lyric sentence.
+                word_index (int): Zero-based index of the current word (0 = first word).
+
+            Raises:
+                ValueError: If word_index is negative.
+            """
+            if word_index < 0:
+                raise ValueError("word_index must be non-negative")
+            self._sentence = sentence
+            self._word_index = word_index
+
+    def add_event(self, item: "Event.AmChord | Event.AmException | Event.AmLyric | Event.AmMSG | Event.AmControl | Event.AmSyncLyric") -> None:
         """Add an item to the event.
 
         Args:
-            item: The item to add (AmChord, AmException, AmLyric, or AmMSG).
+            item: The item to add (AmChord, AmException, AmLyric, AmMSG, AmControl, or AmSyncLyric).
 
         Raises:
             ValueError: If item is not one of the valid event types.
         """
-        if not isinstance(item, (Event.AmChord, Event.AmException, Event.AmLyric, Event.AmMSG)):
+        if not isinstance(item, (Event.AmChord, Event.AmException, Event.AmLyric, Event.AmMSG, Event.AmControl, Event.AmSyncLyric)):
             raise ValueError(
-                "item must be one of: Event.AmChord, Event.AmException, Event.AmLyric, Event.AmMSG"
+                "item must be one of: Event.AmChord, Event.AmException, Event.AmLyric, Event.AmMSG, Event.AmControl, Event.AmSyncLyric"
             )
         self._event = item
 
@@ -253,6 +305,19 @@ class Event:
             return {
                 "type": "AmMSG",
                 "msg": self._event._msg,
+            }
+        elif isinstance(self._event, Event.AmControl):
+            return {
+                "type": "AmControl",
+                "device": self._event._device,
+                "action": self._event._action,
+                "parameters": self._event._parameters,
+            }
+        elif isinstance(self._event, Event.AmSyncLyric):
+            return {
+                "type": "AmSyncLyric",
+                "sentence": self._event._sentence,
+                "word_index": self._event._word_index,
             }
         return None
 
@@ -644,9 +709,11 @@ class Sequencer:
                 - "lyrics": list of lyric strings at current ptime
                 - "messages": list of message dicts at current ptime
         """
-        # Collect lyrics and messages for each channel at current ptime
+        # Collect lyrics, messages, controls, and sync lyrics for each channel at current ptime
         channel_lyrics: Dict[str, List[str]] = {name: [] for name in self._channels}
         channel_messages: Dict[str, List[Dict[str, Any]]] = {name: [] for name in self._channels}
+        channel_controls: Dict[str, List[Dict[str, Any]]] = {name: [] for name in self._channels}
+        channel_sync_lyrics: Dict[str, List[Dict[str, Any]]] = {name: [] for name in self._channels}
 
         # Check if we need to process events at current time
         if self._time == self._next_event_time:
@@ -659,7 +726,7 @@ class Sequencer:
                 if event_time is not None and event_time == self._time:
                     scheduled_events[name] = event_time
 
-                    # Collect lyrics and messages at this ptime
+                    # Collect lyrics, messages, controls, and sync lyrics at this ptime
                     events = event_list.get_events(self._time)
                     for event in events:
                         event_item = event.get_event()
@@ -667,6 +734,17 @@ class Sequencer:
                             channel_lyrics[name].append(event_item._text)
                         elif isinstance(event_item, Event.AmMSG):
                             channel_messages[name].append(event_item._msg)
+                        elif isinstance(event_item, Event.AmControl):
+                            channel_controls[name].append({
+                                "device": event_item._device,
+                                "action": event_item._action,
+                                "parameters": event_item._parameters,
+                            })
+                        elif isinstance(event_item, Event.AmSyncLyric):
+                            channel_sync_lyrics[name].append({
+                                "sentence": event_item._sentence,
+                                "word_index": event_item._word_index,
+                            })
 
                 next_time = event_list.next_event(self._time + 1)
                 if next_time is not None:
@@ -704,6 +782,8 @@ class Sequencer:
                 "sample": channel_sample,
                 "lyrics": channel_lyrics[channel_name],
                 "messages": channel_messages[channel_name],
+                "controls": channel_controls[channel_name],
+                "sync_lyrics": channel_sync_lyrics[channel_name],
             })
 
         self._time += 1
@@ -745,10 +825,33 @@ class Sequencer:
                     duration = event_item._duration
 
                     if action in ("add", "add_pluck"):
-                        # New note supersedes any release fade on this channel.
-                        self._releasing.pop(channel_name, None)
-                        # Set this chord as the active chord for the channel
                         end_time = self._time + duration
+                        prev = self._active_channel.get(channel_name)
+                        prev_chord = prev[0] if prev is not None else None
+
+                        # Fade the outgoing note out over a short release
+                        # instead of cutting it dead, which clicks at legato
+                        # note-to-note transitions. Skip when the incoming
+                        # chord is the same object being retriggered: one chord
+                        # can't be both the active voice and its own fading
+                        # tail (it would get sampled twice per tick).
+                        if prev_chord is not None and prev_chord is not chord:
+                            existing = self._releasing.get(channel_name)
+                            if existing is not None and existing[0] is not prev_chord:
+                                # Only one fade slot per channel; retire the
+                                # older tail cleanly before reusing it.
+                                existing[0].set_off()
+                            self._releasing[channel_name] = [
+                                prev_chord, self._release_samples
+                            ]
+
+                        # If the incoming chord is currently the fading tail,
+                        # reclaim it so it isn't sampled as both voices at once.
+                        reclaimed = self._releasing.get(channel_name)
+                        if reclaimed is not None and reclaimed[0] is chord:
+                            del self._releasing[channel_name]
+
+                        # Set this chord as the active chord for the channel
                         self._active_channel[channel_name] = (chord, end_time)
                         chord.set_on()
                         if action == "add_pluck":
