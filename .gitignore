@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Rendered audio output in the repo root (test fixtures under tests/ are tracked)
+/*.wav
+
+# Local tool state
+.bob/
