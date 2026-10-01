@@ -1826,7 +1826,10 @@ class TestSequencerRelease(unittest.TestCase):
         self.assertNotIn("ch1", seq._releasing)
         self.assertEqual(seq.sample()[0]["sample"], 0.0)
 
-    def test_new_note_supersedes_release(self):
+    def test_new_note_coexists_with_ongoing_release(self):
+        # A new note that arrives while a previous note is still fading out does
+        # not cut that fade dead: the release tail keeps sounding (declick) while
+        # the new note becomes the active voice.
         seq = sl.Sequencer(name="seq")
         ch = sl.Channel(name="ch1")
         e1 = sl.Event(ptime=0, name="e1")
@@ -1840,12 +1843,73 @@ class TestSequencerRelease(unittest.TestCase):
         for _ in range(3):  # times 0,1 active; time 2 begins release
             seq.sample()
         self.assertIn("ch1", seq._releasing)
+        fading = seq._releasing["ch1"][0]
 
         seq.sample()  # t3 (releasing)
         seq.sample()  # t4 (releasing)
-        seq.sample()  # t5: new add supersedes the release
+        seq.sample()  # t5: new add starts alongside the ongoing release
+        # The prior note keeps fading out rather than being truncated ...
+        self.assertIn("ch1", seq._releasing)
+        self.assertIs(seq._releasing["ch1"][0], fading)
+        # ... while the new note becomes the active voice.
+        active = seq._active_channel["ch1"]
+        self.assertIsNotNone(active)
+        self.assertIsNot(active[0], fading)
+
+    def test_superseding_active_note_fades_out(self):
+        # The core fix: when a new note supersedes a note that is *still active*,
+        # the outgoing note is handed to a release fade instead of being cut dead
+        # (which clicks). Both distinct chords are separate objects.
+        seq = sl.Sequencer(name="seq")
+        ch = sl.Channel(name="ch1")
+        first = self._sustained_chord()
+        second = self._sustained_chord()
+        e1 = sl.Event(ptime=0, name="e1")
+        e1.add_event(sl.Event.AmChord("instr", first, "add", 1000))
+        ch.add_event(e1)
+        e2 = sl.Event(ptime=5, name="e2")
+        e2.add_event(sl.Event.AmChord("instr", second, "add", 1000))
+        ch.add_event(e2)
+        seq.add_channel("ch1", ch)
+
+        for _ in range(5):  # times 0..4: `first` is active, nothing releasing
+            seq.sample()
         self.assertNotIn("ch1", seq._releasing)
-        self.assertIsNotNone(seq._active_channel["ch1"])
+
+        seq.sample()  # t5: `second` supersedes the still-active `first`
+        # The outgoing note is now fading, not gone; the new note is active.
+        self.assertIn("ch1", seq._releasing)
+        self.assertIs(seq._releasing["ch1"][0], first)
+        self.assertIs(seq._active_channel["ch1"][0], second)
+
+        # The release ramps down and cleans itself up rather than hard-cutting.
+        rel_start = seq._releasing["ch1"][1]
+        seq.sample()
+        self.assertLess(seq._releasing["ch1"][1], rel_start)  # counting down
+        for _ in range(seq._release_samples):
+            seq.sample()
+        self.assertNotIn("ch1", seq._releasing)  # fully released, cleaned up
+
+    def test_retrigger_same_chord_not_double_slotted(self):
+        # Consecutive notes that reuse the SAME chord object (e.g. an A-A-A run
+        # sharing one Instrument note) must not place that object in both the
+        # active and releasing slots, or it would be sampled twice per tick.
+        seq = sl.Sequencer(name="seq")
+        ch = sl.Channel(name="ch1")
+        chord = self._sustained_chord()
+        e1 = sl.Event(ptime=0, name="e1")
+        e1.add_event(sl.Event.AmChord("instr", chord, "add", 1000))
+        ch.add_event(e1)
+        e2 = sl.Event(ptime=5, name="e2")
+        e2.add_event(sl.Event.AmChord("instr", chord, "add", 1000))
+        ch.add_event(e2)
+        seq.add_channel("ch1", ch)
+
+        for _ in range(6):  # includes t5 where the same chord retriggers
+            seq.sample()
+
+        self.assertIs(seq._active_channel["ch1"][0], chord)
+        self.assertNotIn("ch1", seq._releasing)
 
 
 if __name__ == "__main__":

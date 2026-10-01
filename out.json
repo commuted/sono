@@ -1,0 +1,107 @@
+{
+  "metadata": {
+    "source_file": "hum.wav",
+    "source_sample_rate": 44100,
+    "source_channels": 2,
+    "source_duration_samples": 37376,
+    "output_sample_rate": 44100,
+    "num_components": 5,
+    "fft_size": 4096,
+    "components": [
+      {
+        "frequency": 258.3984375,
+        "amplitude": 0.462025375797389,
+        "phase": -1.9511795437051134
+      },
+      {
+        "frequency": 398.3642578125,
+        "amplitude": 0.18674026599222882,
+        "phase": 0.06300667365804652
+      },
+      {
+        "frequency": 129.19921875,
+        "amplitude": 1.0,
+        "phase": -2.6956019461247753
+      },
+      {
+        "frequency": 947.4609375,
+        "amplitude": 0.010980219637380922,
+        "phase": -1.5365831166896786
+      },
+      {
+        "frequency": 538.330078125,
+        "amplitude": 0.034808938792896864,
+        "phase": 0.9848524185342884
+      }
+    ]
+  },
+  "note": {
+    "get_type": "Note",
+    "get_name": "test",
+    "a": {
+      "get_scale": 0.2,
+      "get_type": "FixedAttenuate",
+      "get_name": "test_normalized",
+      "a": {
+        "get_scale": 0.5,
+        "get_type": "SumElements",
+        "get_name": "test_sum_3",
+        "a": {
+          "get_scale": 0.5,
+          "get_type": "SumElements",
+          "get_name": "test_sum_2",
+          "a": {
+            "get_scale": 0.5,
+            "get_type": "SumElements",
+            "get_name": "test_sum_0",
+            "a": {
+              "get_name": "test_partial_0",
+              "get_frequency": 258.3984375,
+              "get_phase": -1.9511795437051134,
+              "get_type": "SoundElement",
+              "get_sample_rate": 44100,
+              "get_scale": 0.462025375797389
+            },
+            "b": {
+              "get_name": "test_partial_1",
+              "get_frequency": 398.3642578125,
+              "get_phase": 0.06300667365804652,
+              "get_type": "SoundElement",
+              "get_sample_rate": 44100,
+              "get_scale": 0.18674026599222882
+            }
+          },
+          "b": {
+            "get_scale": 0.5,
+            "get_type": "SumElements",
+            "get_name": "test_sum_1",
+            "a": {
+              "get_name": "test_partial_2",
+              "get_frequency": 129.19921875,
+              "get_phase": -2.6956019461247753,
+              "get_type": "SoundElement",
+              "get_sample_rate": 44100,
+              "get_scale": 1.0
+            },
+            "b": {
+              "get_name": "test_partial_3",
+              "get_frequency": 947.4609375,
+              "get_phase": -1.5365831166896786,
+              "get_type": "SoundElement",
+              "get_sample_rate": 44100,
+              "get_scale": 0.010980219637380922
+            }
+          }
+        },
+        "b": {
+          "get_name": "test_partial_4",
+          "get_frequency": 538.330078125,
+          "get_phase": 0.9848524185342884,
+          "get_type": "SoundElement",
+          "get_sample_rate": 44100,
+          "get_scale": 0.034808938792896864
+        }
+      }
+    }
+  }
+}
